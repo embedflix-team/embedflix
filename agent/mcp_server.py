@@ -1,14 +1,11 @@
 """
 KuaiRand Hackathon MCP Server — built with FastMCP 4
-
 Install:  pip install fastmcp
 Run:      python mcp_server.py        (stdio, for Claude Desktop / Claude Code)
           fastmcp dev mcp_server.py   (dev mode with inspector UI)
-
 Every tool is a plain Python function — FastMCP auto-generates the JSON schema
 from type annotations and docstrings, validates inputs, and handles transport.
 """
-
 import json
 import os
 import re
@@ -16,9 +13,7 @@ import shutil
 import subprocess
 import time
 from typing import Annotated
-
 from fastmcp import FastMCP
-
 # ── Server setup ─────────────────────────────────────────────────────────────
 mcp = FastMCP(
     name="KuaiRandAgentTools",
@@ -29,15 +24,12 @@ mcp = FastMCP(
         "run the pipeline, read/edit code, checkpoint, log, and submit."
     ),
 )
-
 # Resolve paths relative to this file so the server works from any cwd
 _HERE = os.path.dirname(os.path.abspath(__file__))
 STARTER_KIT = os.path.join(_HERE, "../starter-kit")
 CHECKPOINTS = os.path.join(_HERE, "../checkpoints")
 LOG_PATH = os.path.join(_HERE, "../run_log.jsonl")
 RESOURCE_LOG = os.path.join(_HERE, "../resource_log.json")
-
-
 # ── Tool 1: Run the FM pipeline ───────────────────────────────────────────────
 @mcp.tool
 def run_pipeline(
@@ -45,7 +37,6 @@ def run_pipeline(
 ) -> str:
     """
     Runs baseline.py --model fm in the starter-kit directory.
-
     Returns the combined stdout + stderr so the agent can parse scores
     and errors. Timeout is 300 s (covers a full FM training run).
     """
@@ -59,8 +50,6 @@ def run_pipeline(
         cwd=STARTER_KIT,
     )
     return result.stdout + result.stderr
-
-
 # ── Tool 2: Read a file ───────────────────────────────────────────────────────
 @mcp.tool
 def read_file(
@@ -68,7 +57,6 @@ def read_file(
 ) -> str:
     """
     Reads any text file inside the starter-kit directory.
-
     The agent uses this to inspect code before editing it — always read
     before you write.
     """
@@ -78,8 +66,6 @@ def read_file(
             return f.read()
     except Exception as e:
         return f"ERROR: {e}"
-
-
 # ── Tool 3: Edit a file ───────────────────────────────────────────────────────
 @mcp.tool
 def edit_file(
@@ -89,7 +75,6 @@ def edit_file(
 ) -> str:
     """
     Replaces old_code with new_code in the specified file.
-
     Fails safely if the exact string is not found — no changes are written.
     Always call read_file first to confirm the string exists verbatim.
     """
@@ -105,8 +90,6 @@ def edit_file(
         return f"SUCCESS: {file_path} updated."
     except Exception as e:
         return f"ERROR: {e}"
-
-
 # ── Tool 4: Save checkpoint ───────────────────────────────────────────────────
 @mcp.tool
 def save_checkpoint(
@@ -115,7 +98,6 @@ def save_checkpoint(
 ) -> str:
     """
     Saves the current baseline.py and data.py as a numbered checkpoint.
-
     Call this whenever the validation primary score improves so that the
     best-performing code version is never lost.
     """
@@ -126,8 +108,6 @@ def save_checkpoint(
     with open(os.path.join(folder, "score.json"), "w") as f:
         json.dump({"primary": primary_score, "iteration": iteration}, f)
     return f"Checkpoint saved: iter {iteration}, primary={primary_score:.4f}"
-
-
 # ── Tool 5: Restore checkpoint ────────────────────────────────────────────────
 @mcp.tool
 def restore_checkpoint(
@@ -135,7 +115,6 @@ def restore_checkpoint(
 ) -> str:
     """
     Restores baseline.py and data.py from a previously saved checkpoint.
-
     Use this for error recovery when the current changes have made things
     worse and you want to roll back to the last good state.
     """
@@ -145,8 +124,6 @@ def restore_checkpoint(
     for fname in ("baseline.py", "data.py"):
         shutil.copy(os.path.join(folder, fname), os.path.join(STARTER_KIT, fname))
     return f"Restored from iter {iteration}"
-
-
 # ── Tool 6: Log one iteration ─────────────────────────────────────────────────
 @mcp.tool
 def log_iteration(
@@ -161,7 +138,6 @@ def log_iteration(
 ) -> str:
     """
     Appends one complete iteration record to run_log.jsonl.
-
     This log is a judging deliverable — it demonstrates hypothesis-driven
     reasoning and autonomous error recovery. Call after every iteration,
     including failed ones.
@@ -178,8 +154,6 @@ def log_iteration(
     with open(LOG_PATH, "a") as f:
         f.write(json.dumps(entry) + "\n")
     return "Logged successfully"
-
-
 # ── Tool 7: Track resource usage ──────────────────────────────────────────────
 @mcp.tool
 def track_resources(
@@ -189,7 +163,6 @@ def track_resources(
 ) -> str:
     """
     Appends token + wall-clock usage for one iteration to resource_log.json.
-
     Feasibility scoring (15% of total) is based on total tokens and wall-clock
     time — track these every iteration so the final report is accurate.
     """
@@ -201,8 +174,6 @@ def track_resources(
     with open(RESOURCE_LOG, "w") as f:
         json.dump(data, f, indent=2)
     return f"Tracked iter {iteration}: {tokens} tokens, {wall_seconds:.1f}s"
-
-
 # ── Tool 8: Format and validate submission ────────────────────────────────────
 @mcp.tool
 def format_submission(
@@ -210,7 +181,6 @@ def format_submission(
 ) -> str:
     """
     Generates a submission CSV with the FM baseline scores, then validates it.
-
     Returns the combined output of `submit.py --make` and `submit.py --check`.
     Run this before any final submission to confirm the file passes all checks.
     """
@@ -229,8 +199,6 @@ def format_submission(
         cwd=STARTER_KIT,
     )
     return make.stdout + "\n" + check.stdout + check.stderr
-
-
 # ── Tool 9: Parse scores from pipeline output ─────────────────────────────────
 @mcp.tool
 def parse_scores(
@@ -238,7 +206,6 @@ def parse_scores(
 ) -> dict:
     """
     Extracts GAUC, nDCG@5, and primary from a baseline.py output string.
-
     Returns a dict with keys GAUC, nDCG@5, primary (all float | None).
     Values are None when the pattern isn't found — this signals a parse
     failure and the agent should inspect pipeline_output for errors.
@@ -253,8 +220,6 @@ def parse_scores(
         result["nDCG@5"] = float(match.group(2))
         result["primary"] = float(match.group(3))
     return result
-
-
 # ── Entrypoint ────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     # fastmcp dev mcp_server.py  →  hot-reload + inspector UI
