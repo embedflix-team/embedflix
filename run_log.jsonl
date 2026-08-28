@@ -1,0 +1,1 @@
+{"iteration": 0, "timestamp": "2026-08-28T13:35:16", "hypothesis": "Reproduce official FM baseline to confirm environment", "code_diff": "No changes \u2014 running baseline as-is", "score": {"GAUC": 0.6671, "nDCG@5": 0.5358, "primary": 0.6015}, "error": "", "recovery": ""}
