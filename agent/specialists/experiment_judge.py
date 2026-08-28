@@ -1,15 +1,13 @@
 # agent/specialists/experiment_judge.py
 from anthropic import Anthropic
-import os
 
 client = Anthropic()
 
 def experiment_judge(state: dict, tools: dict) -> dict:
     """
-    Runs AFTER score_analyst gets the new scores.
-    Judges whether the experiment worked, why, and what to learn from it.
-    This node produces the rich reasoning logs that judges evaluate for
-    Innovation and Autonomy scoring.
+    Pure reasoning node — analyzes experiment results and produces
+    verdict/analysis/learning for the judge logs.
+    Checkpointing and logging are handled by score_analyst and log_and_track.
     """
 
     history_summary = _summarize_history(state.get("experiment_history", []))
@@ -41,7 +39,7 @@ FULL EXPERIMENT HISTORY:
 YOUR JOB:
 Analyze this experiment result deeply. Explain:
 1. Did it work? Why or why not?
-2. What does the GAUC vs nDCG@5 split tell us? 
+2. What does the GAUC vs nDCG@5 split tell us?
    (If GAUC improved but nDCG didn't, ranking order improved but top-5 precision didn't)
 3. What should the agent learn from this for future iterations?
 4. Is there a pattern emerging across experiments?
@@ -54,7 +52,7 @@ VERDICT: [improved | no_change | regression]
 ANALYSIS: [3-4 sentences — what worked, what didn't, why, what the metric split reveals]
 LEARNING: [1-2 sentences — what the agent should remember for future iterations]
 NEXT_PRIORITY: [one sentence — what area looks most promising to try next]
-KEEP_CHECKPOINT: [yes | no — whether to save this as the new best]
+REASONING: [one sentence summary for the run log]
 """
 
     response = client.messages.create(
@@ -66,46 +64,13 @@ KEEP_CHECKPOINT: [yes | no — whether to save this as the new best]
     text = response.content[0].text
     parsed = _parse_response(text)
 
-    # Build the iteration log entry — this is what judges read
-    log_entry = {
-        "iteration": iteration,
-        "specialist": specialist,
-        "hypothesis": hypothesis,
-        "gauc": gauc,
-        "ndcg5": ndcg5,
-        "primary": current,
-        "delta_vs_baseline": round(current - 0.6016, 4),
+    return {
+        **state,
         "verdict": parsed["verdict"],
         "analysis": parsed["analysis"],
         "learning": parsed["learning"],
         "next_priority": parsed["next_priority"],
-        "error": error
-    }
-
-    # Log it via MCP tool
-    tools["log_iteration"]({"iteration": iteration, "log": log_entry})
-
-    # Save checkpoint if improved
-    if parsed["keep_checkpoint"] == "yes" and current > best:
-        tools["save_checkpoint"]({"iteration": iteration, "primary": current})
-        new_best = current
-    else:
-        new_best = best
-
-    # Add to experiment history
-    history = state.get("experiment_history", [])
-    history.append(log_entry)
-
-    return {
-        **state,
-        "experiment_history": history,
-        "best_scores": {
-            **state.get("best_scores", {}),
-            "primary": new_best
-        },
-        "verdict": parsed["verdict"],
-        "analysis": parsed["analysis"],
-        "learning": parsed["learning"],
+        "reasoning": parsed["reasoning"],
     }
 
 
@@ -129,7 +94,7 @@ def _parse_response(text: str) -> dict:
         "analysis": "",
         "learning": "",
         "next_priority": "",
-        "keep_checkpoint": "no"
+        "reasoning": ""
     }
     for line in text.split("\n"):
         if line.startswith("VERDICT:"):
@@ -140,6 +105,6 @@ def _parse_response(text: str) -> dict:
             result["learning"] = line.replace("LEARNING:", "").strip()
         elif line.startswith("NEXT_PRIORITY:"):
             result["next_priority"] = line.replace("NEXT_PRIORITY:", "").strip()
-        elif line.startswith("KEEP_CHECKPOINT:"):
-            result["keep_checkpoint"] = line.replace("KEEP_CHECKPOINT:", "").strip()
+        elif line.startswith("REASONING:"):
+            result["reasoning"] = line.replace("REASONING:", "").strip()
     return result
