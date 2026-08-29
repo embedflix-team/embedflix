@@ -5,9 +5,9 @@ client = Anthropic()
 
 def experiment_judge(state: dict, tools: dict) -> dict:
     """
-    Pure reasoning node — analyzes experiment results and produces
-    verdict/analysis/learning for the judge logs.
-    Checkpointing and logging are handled by score_analyst and log_and_track.
+    Analyzes experiment results and produces verdict/analysis for judge logs.
+    Phase 1: web_search for context on what the metrics mean
+    Phase 2: web_search for what the literature says about this result pattern
     """
 
     history_summary = _summarize_history(state.get("experiment_history", []))
@@ -20,7 +20,21 @@ def experiment_judge(state: dict, tools: dict) -> dict:
     iteration = state.get("iteration", 1)
     error = state.get("error_message", None)
 
-    prompt = f"""You are an ML research judge reviewing an experiment run by an 
+    # PHASE 1 — look up what this metric pattern means
+    concept_results = tools["web_search"]({
+        "query": f"GAUC nDCG gap analysis recommender system ranking metric interpretation",
+        "search_type": "concept",
+        "n_results": 3
+    })
+
+    # PHASE 2 — look up what literature says about this specialist's approach
+    code_results = tools["web_search"]({
+        "query": f"{specialist} result analysis recommender system when it fails when it works",
+        "search_type": "concept",
+        "n_results": 2
+    })
+
+    prompt = f"""You are an ML research judge reviewing an experiment run by an
 autonomous recommender system agent.
 
 EXPERIMENT JUST RUN:
@@ -36,15 +50,21 @@ EXPERIMENT JUST RUN:
 FULL EXPERIMENT HISTORY:
 {history_summary}
 
+METRIC CONTEXT (from research):
+{concept_results.get("results", "No results")}
+
+SPECIALIST CONTEXT (from research):
+{code_results.get("results", "No results")}
+
 YOUR JOB:
-Analyze this experiment result deeply. Explain:
-1. Did it work? Why or why not?
+Analyze this experiment result deeply using the research context above. Explain:
+1. Did it work? Why or why not — grounded in the research?
 2. What does the GAUC vs nDCG@5 split tell us?
-   (If GAUC improved but nDCG didn't, ranking order improved but top-5 precision didn't)
+   (GAUC improved but nDCG didn't = ranking order improved but top-5 precision didn't)
 3. What should the agent learn from this for future iterations?
 4. Is there a pattern emerging across experiments?
 
-This analysis will be read by hackathon judges to assess the agent's 
+This analysis will be read by hackathon judges to assess the agent's
 research quality and autonomous reasoning ability.
 
 Respond in this exact format:

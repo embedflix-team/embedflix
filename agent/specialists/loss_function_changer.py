@@ -11,48 +11,61 @@ client = Anthropic(
 def loss_function_changer(state: dict, tools: dict) -> dict:
     """
     Proposes a change to the loss function.
-    The baseline uses log-loss (pointwise), but we're evaluated on ranking.
-    BPR (pairwise) or softmax (listwise) align better with GAUC/nDCG.
+    Phase 1: web_search for concept (what technique to try)
+    Phase 2: web_search for code blueprint (how to implement it)
     """
 
     history_summary = _summarize_history(state.get("experiment_history", []))
     tried = state.get("tried_approaches", [])
+    primary = state.get("current_scores", {}).get("primary", 0.6016)
+
+    # PHASE 1 — discover concept
+    concept_results = tools["web_search"]({
+        "query": "improve GAUC nDCG ranking loss function recommender system pairwise listwise",
+        "search_type": "concept",
+        "n_results": 3
+    })
+
+    # decide technique from phase 1 (simple keyword pick — Claude will reason properly)
+    technique = _decide_technique(concept_results.get("results", ""), tried)
+
+    # PHASE 2 — get real code blueprint for that technique
+    code_results = tools["web_search"]({
+        "query": f"{technique} numpy implementation recommender system",
+        "search_type": "code",
+        "n_results": 2
+    })
 
     prompt = f"""You are an ML expert improving a KuaiRand-Pure recommender system.
 
 CURRENT SITUATION:
-- Baseline model: Factorization Machine trained with log-loss (binary cross-entropy)
-- Current validation primary score: {state.get("current_scores", {}).get("primary", 0.6016)}
-- Best score seen: {state.get("best_scores", {}).get("primary", 0.6016)}
-- Metric being optimized: primary = mean(GAUC, nDCG@5) — both are RANKING metrics
+- Baseline: Factorization Machine trained with log-loss (binary cross-entropy)
+- Current primary score: {primary:.4f} (baseline to beat: 0.6016)
+- Metric: primary = mean(GAUC, nDCG@5) — both are RANKING metrics
 - Iteration: {state.get("iteration", 1)}
 
-KEY INSIGHT: The baseline is trained with log-loss (predicts click probability) 
-but evaluated on ranking quality. This is a mismatch. Ranking-aware losses fix this.
+KEY INSIGHT: Log-loss trains for click probability but we are evaluated on ranking 
+quality. Ranking-aware losses fix this mismatch directly.
 
 EXPERIMENT HISTORY:
 {history_summary}
 
 ALREADY TRIED: {tried}
 
-LOSS FUNCTION OPTIONS (choose the best one not yet tried):
-1. BPR loss (Bayesian Personalized Ranking): pairwise — trains model to rank positives 
-   above negatives directly. Best for GAUC improvement.
-2. Softmax/listwise loss: treats all items per user as a group, maximizes probability 
-   of positive at top. Best for nDCG improvement.
-3. Focal loss: down-weights easy negatives, focuses on hard cases. Helps with 
-   class imbalance (95% negatives).
-4. WARP loss: Weighted Approximate-Rank Pairwise — samples negatives until 
-   a violation is found, very efficient.
+CONCEPT RESEARCH (what you found on the web):
+{concept_results.get("results", "No results")}
 
-Decide which loss function to try next and explain exactly why it will improve 
-GAUC or nDCG@5 for this dataset.
+CODE BLUEPRINT (real implementation reference):
+{code_results.get("results", "No results")}
+
+Based on the research above, propose ONE specific loss function change to baseline.py.
+Adapt the code blueprint to fit the existing FM baseline structure.
+Do not invent math — adapt what you found.
 
 Respond in this exact format:
 HYPOTHESIS: [one sentence — what you're trying and why]
 LOSS_CHOICE: [bpr | softmax | focal | warp]
-CODE_INSTRUCTION: [exact, specific instruction for a code writer to implement this 
-in baseline.py — include function signatures, where to add it, what to replace]
+CODE_INSTRUCTION: [exact instruction for a code writer to implement this in baseline.py]
 REASONING: [2-3 sentences of ML reasoning for the judge logs]
 """
 
@@ -74,11 +87,25 @@ REASONING: [2-3 sentences of ML reasoning for the judge logs]
     }
 
 
+def _decide_technique(search_results: str, tried: list) -> str:
+    """Pick a technique from phase 1 results that hasn't been tried yet."""
+    candidates = [
+        ("bpr", "Bayesian Personalised Ranking BPR loss"),
+        ("softmax", "softmax listwise loss recommender"),
+        ("focal", "focal loss class imbalance"),
+        ("warp", "WARP loss pairwise ranking"),
+    ]
+    for key, technique in candidates:
+        if f"loss:{key}" not in tried:
+            return technique
+    return "BPR loss pairwise ranking"  # fallback
+
+
 def _summarize_history(history: list) -> str:
     if not history:
         return "No experiments yet. This is iteration 1."
     lines = []
-    for h in history[-5:]:  # last 5 only
+    for h in history[-5:]:
         lines.append(
             f"- Iter {h.get('iteration')}: {h.get('hypothesis', '?')} "
             f"→ primary {h.get('primary', '?')}"

@@ -6,53 +6,65 @@ client = Anthropic()
 
 def model_swapper(state: dict, tools: dict) -> dict:
     """
-    Proposes switching the model architecture entirely.
-    Baseline is FM (Factorization Machine) — good but basic.
-    DeepFM, DCN, or DIN can capture higher-order feature interactions
-    which FM misses, especially with user history features.
+    Proposes upgrading the model architecture.
+    Phase 1: web_search for concept
+    Phase 2: web_search for code blueprint
     """
 
     history_summary = _summarize_history(state.get("experiment_history", []))
     tried = state.get("tried_approaches", [])
+    primary = state.get("current_scores", {}).get("primary", 0.6016)
+
+    # PHASE 1 — discover concept
+    concept_results = tools["web_search"]({
+        "query": "DeepFM DCN feature interaction recommender system ranking improvement",
+        "search_type": "concept",
+        "n_results": 3
+    })
+
+    technique = _decide_technique(concept_results.get("results", ""), tried)
+
+    # PHASE 2 — get code blueprint
+    code_results = tools["web_search"]({
+        "query": f"{technique} numpy implementation from scratch",
+        "search_type": "code",
+        "n_results": 2
+    })
 
     prompt = f"""You are an ML expert improving a KuaiRand-Pure recommender system.
 
 CURRENT SITUATION:
-- Baseline model: Factorization Machine (FM, k=16, lr=0.001, 5 categorical fields)
-- Current validation primary score: {state.get("current_scores", {}).get("primary", 0.6016)}
-- Best score seen: {state.get("best_scores", {}).get("primary", 0.6016)}
+- Baseline: Factorization Machine (FM) with k=16 embeddings, 5 features
+- FM captures pairwise feature interactions but misses higher-order interactions
+- Current primary score: {primary:.4f} (baseline to beat: 0.6016)
 - Metric: primary = mean(GAUC, nDCG@5)
 - Iteration: {state.get("iteration", 1)}
-- Constraint: numpy only preferred (no torch/pandas), must run on CPU in ~40s
+- Constraint: must stay numpy-only (no torch/tensorflow) for fast CPU training
 
-KEY INSIGHT: FM captures only pairwise feature interactions (A×B).
-Deeper models capture higher-order interactions (A×B×C) which matter
-for complex user behaviour patterns. However complexity must be balanced
-against the CPU-only constraint and 40s runtime budget.
+KEY INSIGHT: FM only models second-order interactions. Architectures like DeepFM
+add a neural component that captures arbitrary-order interactions, which 
+significantly improves ranking on sparse categorical data.
 
 EXPERIMENT HISTORY:
 {history_summary}
 
 ALREADY TRIED: {tried}
 
-MODEL OPTIONS (choose best not yet tried):
-1. deeper_fm: add a 2-layer MLP on top of FM embeddings (hidden: 64→32).
-   Captures non-linear interactions. Still numpy-implementable.
-2. deepfm: combine FM + deep MLP sharing same embeddings.
-   Industry standard, best balance of accuracy vs complexity.
-3. dcn: Deep & Cross Network — explicit cross layers + deep layers.
-   Very efficient at capturing bounded-degree interactions.
-4. fm_higher_k: increase FM embedding dim from k=16 to k=32 or k=64.
-   Simple change, often underexplored, can significantly help.
-5. field_aware_fm: FFM — each feature has separate embedding per field.
-   More expressive than FM, same paradigm.
+CONCEPT RESEARCH (what you found on the web):
+{concept_results.get("results", "No results")}
 
-Decide which architecture change to try given the CPU/numpy constraint.
+CODE BLUEPRINT (real implementation reference):
+{code_results.get("results", "No results")}
+
+Based on the research above, propose ONE specific model upgrade for baseline.py.
+Adapt the code blueprint to fit the existing numpy-only FM baseline structure.
+Do not invent math — adapt what you found.
+Remember: numpy only, no torch.
 
 Respond in this exact format:
-HYPOTHESIS: [one sentence — which model and why it beats FM here]
-MODEL_CHOICE: [deeper_fm | deepfm | dcn | fm_higher_k | field_aware_fm]
-CODE_INSTRUCTION: [exact instruction for code_writer — what class to add or modify in baseline.py, key hyperparameters, what to keep the same from FM]
+HYPOTHESIS: [one sentence — which architecture to try and why it captures more]
+MODEL_CHOICE: [deepfm | higher_k | dcn | wider_fm | field_aware_fm]
+CODE_INSTRUCTION: [exact instruction for code_writer — what class to add/modify, which forward pass to change, how to keep numpy-only]
 REASONING: [2-3 sentences of ML reasoning for judge logs]
 """
 
@@ -74,6 +86,20 @@ REASONING: [2-3 sentences of ML reasoning for judge logs]
     }
 
 
+def _decide_technique(search_results: str, tried: list) -> str:
+    candidates = [
+        ("higher_k", "FM higher embedding dimension k=32 k=64"),
+        ("deepfm", "DeepFM deep component MLP feature interaction"),
+        ("field_aware_fm", "Field-aware Factorization Machine FFM"),
+        ("dcn", "Deep Cross Network feature crossing"),
+        ("wider_fm", "FM wider embeddings feature interactions"),
+    ]
+    for key, technique in candidates:
+        if f"model:{key}" not in tried:
+            return technique
+    return "FM higher embedding dimension k=32 k=64"
+
+
 def _summarize_history(history: list) -> str:
     if not history:
         return "No experiments yet. This is iteration 1."
@@ -89,7 +115,7 @@ def _summarize_history(history: list) -> str:
 def _parse_response(text: str) -> dict:
     result = {
         "hypothesis": "",
-        "model_choice": "deepfm",
+        "model_choice": "higher_k",
         "code_instruction": "",
         "reasoning": ""
     }

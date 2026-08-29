@@ -6,55 +6,62 @@ client = Anthropic()
 
 def training_optimizer(state: dict, tools: dict) -> dict:
     """
-    Proposes changes to training settings — learning rate, batch size,
-    regularization, early stopping, embedding size.
-    These are often overlooked but can squeeze significant gains.
+    Proposes changes to training settings.
+    Phase 1: web_search for concept
+    Phase 2: web_search for code blueprint
     """
 
     history_summary = _summarize_history(state.get("experiment_history", []))
     tried = state.get("tried_approaches", [])
+    primary = state.get("current_scores", {}).get("primary", 0.6016)
+
+    # PHASE 1 — discover concept
+    concept_results = tools["web_search"]({
+        "query": "training hyperparameter optimization recommender system learning rate regularization",
+        "search_type": "concept",
+        "n_results": 3
+    })
+
+    technique = _decide_technique(concept_results.get("results", ""), tried)
+
+    # PHASE 2 — get code blueprint
+    code_results = tools["web_search"]({
+        "query": f"{technique} numpy implementation training loop",
+        "search_type": "code",
+        "n_results": 2
+    })
 
     prompt = f"""You are an ML expert improving a KuaiRand-Pure recommender system.
 
 CURRENT SITUATION:
-- Baseline training settings: lr=0.001, batch_size=8192, Adam optimizer,
-  early stopping patience=4, embedding k=16, no regularization
-- Current validation primary score: {state.get("current_scores", {}).get("primary", 0.6016)}
-- Best score seen: {state.get("best_scores", {}).get("primary", 0.6016)}
+- Baseline: lr=0.001, batch_size=8192, Adam, early stopping patience=4, k=16, no regularization
+- Current primary score: {primary:.4f} (baseline to beat: 0.6016)
 - Metric: primary = mean(GAUC, nDCG@5)
 - Iteration: {state.get("iteration", 1)}
 - Dataset: 1.14M train rows, 124K validation rows, 5 categorical features
 
-KEY INSIGHT: Training hyperparameters are often the easiest wins.
-The baseline uses default settings that were not tuned for this dataset.
-Small changes to lr, regularization, or batch size can improve both
-convergence speed and final score.
+KEY INSIGHT: Default training settings are rarely optimal. Small targeted changes
+to lr, regularization, or batch size can improve both convergence and final score.
 
 EXPERIMENT HISTORY:
 {history_summary}
 
 ALREADY TRIED: {tried}
 
-TRAINING OPTIONS (choose best not yet tried):
-1. lr_decay: add learning rate decay (multiply lr by 0.5 every 2 epochs).
-   Helps model converge to a better minimum instead of oscillating.
-2. l2_regularization: add L2 penalty (lambda=1e-5) on embeddings.
-   Prevents overfitting on high-frequency users/items.
-3. larger_batch: increase batch_size from 8192 to 16384 or 32768.
-   More stable gradients, faster convergence on large dataset.
-4. smaller_lr: reduce lr from 0.001 to 0.0005.
-   More careful updates, often helps when model is close to convergence.
-5. increased_patience: increase early stopping patience from 4 to 8.
-   Gives model more time to escape local minima.
-6. embedding_regularization: add dropout on embeddings (rate=0.1).
-   Reduces co-adaptation between embedding dimensions.
+CONCEPT RESEARCH (what you found on the web):
+{concept_results.get("results", "No results")}
 
-Decide which training change to try next based on the experiment history.
+CODE BLUEPRINT (real implementation reference):
+{code_results.get("results", "No results")}
+
+Based on the research above, propose ONE specific training change to baseline.py.
+Adapt the code blueprint to fit the existing FM baseline structure.
+Do not invent math — adapt what you found.
 
 Respond in this exact format:
 HYPOTHESIS: [one sentence — what setting to change and why it helps]
 TRAINING_CHOICE: [lr_decay | l2_regularization | larger_batch | smaller_lr | increased_patience | embedding_regularization]
-CODE_INSTRUCTION: [exact instruction for code_writer — which variable in baseline.py to change, what value to set, where to add the new logic]
+CODE_INSTRUCTION: [exact instruction for code_writer — which variable to change, what value, where to add logic]
 REASONING: [2-3 sentences of ML reasoning for judge logs]
 """
 
@@ -74,6 +81,21 @@ REASONING: [2-3 sentences of ML reasoning for judge logs]
         "reasoning": parsed["reasoning"],
         "tried_approaches": tried + [f"training:{parsed['training_choice']}"]
     }
+
+
+def _decide_technique(search_results: str, tried: list) -> str:
+    candidates = [
+        ("l2_regularization", "L2 regularization embedding training"),
+        ("lr_decay", "learning rate decay schedule training"),
+        ("larger_batch", "large batch size training stability"),
+        ("smaller_lr", "small learning rate fine tuning"),
+        ("increased_patience", "early stopping patience tuning"),
+        ("embedding_regularization", "embedding dropout regularization"),
+    ]
+    for key, technique in candidates:
+        if f"training:{key}" not in tried:
+            return technique
+    return "L2 regularization embedding training"
 
 
 def _summarize_history(history: list) -> str:

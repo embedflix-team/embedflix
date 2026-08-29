@@ -40,5 +40,10 @@ def make_stub_tools():
         "format_submission": lambda kwargs: {
             "status": "formatted",
             "path": "submission.csv"
+        },
+        "web_search": lambda kwargs: {
+            "results": f"[STUB] Search results for: {kwargs.get('query', '')}",
+            "query": kwargs.get("query", ""),
+            "search_type": kwargs.get("search_type", "concept")
         }
     }
