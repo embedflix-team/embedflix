@@ -1,8 +1,6 @@
 # agent/specialists/supervisor.py
 from anthropic import Anthropic
 import os
-from agent.logger import log_node_start, log_node_result
-import time
 
 client = Anthropic()
 
@@ -22,8 +20,6 @@ def supervisor(state: dict, tools: dict) -> dict:
     This is what judges evaluate for autonomy and innovation quality.
     """
 
-    node_start = time.time()
-    log_node_start("multitask_trainer", state.get("iteration", 1))
     history_summary = _summarize_history(state.get("experiment_history", []))
     tried = state.get("tried_approaches", [])
     current = state.get("current_scores", {}).get("primary", 0.6016)
@@ -88,17 +84,6 @@ STRATEGY: [one sentence — overall strategy for this phase of the run]
 
     text = response.content[0].text
     parsed = _parse_response(text)
-    log_node_result(
-        node_name="multitask_trainer",
-        iteration=state.get("iteration", 1),
-        hypothesis=parsed["hypothesis"],
-        issue_found="Only long_view label used — 11 signals wasted",
-        proposed_fix=parsed["code_instruction"],
-        reasoning=parsed["reasoning"],
-        duration_seconds=time.time() - node_start,
-        tokens_in=response.usage.input_tokens,
-        tokens_out=response.usage.output_tokens,
-    )
 
     # Validate route — fall back to loss_function_changer if invalid
     if parsed["route_to"] not in SPECIALISTS:
