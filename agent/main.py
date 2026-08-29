@@ -23,6 +23,13 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# Must run BEFORE importing graph -- graph.py imports the specialists, and
+# every specialist does `client = Anthropic()` at module level, which reads
+# ANTHROPIC_API_KEY from the environment at import time. Load .env first or
+# that import crashes even with a real .env file sitting right next to it.
+from dotenv import load_dotenv
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".env"))
+
 from graph import build_graph
 from tools_adapter import build_tools
 from state import initial_state
