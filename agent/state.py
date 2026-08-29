@@ -23,11 +23,9 @@ NOTE on experiment_history shape: every specialist's _summarize_history
 reads h.get('iteration'), h.get('specialist'), h.get('hypothesis'),
 h.get('primary') from a FLAT dict -- not the old nested {"scores": {...}}
 shape. score_analyst builds entries in that flat shape. experiment_judge.py
-(as pushed) still builds its own richer entry and appends to history itself
--- per Person A's confirmation ("reasoning-only, no tool calls, no
-checkpointing, returns only verdict/analysis/learning/next_priority") that
-file is due for a rewrite that drops the append/checkpoint side effects.
-Until the rewritten version lands, judge stays stubbed in graph.py and
+(2026-08-28 rewrite, commit 9e85ac5) is reasoning-only -- no tool calls, no
+checkpointing, no experiment_history append -- and is wired into graph.py
+for real as of the "Wire real experiment_judge into graph.py" commit.
 history stays exclusively owned by score_analyst -- see agent.py.
 
 NOTE on next_specialist: supervisor.py sets state["next_specialist"] (not
@@ -78,6 +76,23 @@ class AgentState(TypedDict):
     run_wall_seconds: float
     iterations_without_improvement: int
 
+    # --- Internal bookkeeping, passed between separate node CALLS (not just
+    # read within one node), so these MUST be declared TypedDict keys.
+    # LangGraph's Pregel executor only creates a channel -- and therefore only
+    # actually propagates a value between nodes -- for keys present in this
+    # schema. An undeclared key set with state["_x"] = ... inside a node is
+    # visible to code running later IN THE SAME node call (it's just a dict),
+    # but is silently dropped when that node returns and the next node reads
+    # state.get("_x", ...) -- confirmed 2026-08-29 from a real run_log.jsonl:
+    # log_and_track's raw_scores (set two nodes earlier, in pipeline_runner)
+    # came back {} there, logging null gauc/ndcg/primary even though the
+    # pipeline had computed real scores and score_analyst (one node closer)
+    # had already used them correctly.
+    _raw_scores: Dict[str, Any]        # set by pipeline_runner, read by score_analyst + log_and_track
+    _improved: bool                    # set by score_analyst
+    _recovery_attempts: int            # read+written across separate error_recovery calls
+    _stop_reason: Optional[str]        # set by convergence_checker
+
 
 def initial_state() -> AgentState:
     import time
@@ -107,6 +122,10 @@ def initial_state() -> AgentState:
         total_tokens=0,
         run_wall_seconds=0.0,
         iterations_without_improvement=0,
+        _raw_scores={},
+        _improved=False,
+        _recovery_attempts=0,
+        _stop_reason=None,
     )
 
 

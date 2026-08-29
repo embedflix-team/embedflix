@@ -1,5 +1,5 @@
-"""Step 4: wire the LangGraph. Real supervisor + 5 specialists are wired in
-from agent/specialists/*.py. `judge` stays a placeholder -- see NOTE below.
+"""Step 4: wire the LangGraph. Real supervisor + 5 specialists + judge, all
+from agent/specialists/*.py.
 
 Edge structure (from the build plan doc):
   baseline_verifier -> supervisor
@@ -13,20 +13,12 @@ Edge structure (from the build plan doc):
   log_and_track -> convergence_checker
   convergence_checker -> [END | supervisor, conditional]
 
-NOTE on `judge`: agent/specialists/experiment_judge.py is pushed but, as of
-2026-08-28, still the OLD interface -- it calls tools["log_iteration"](...)
-and tools["save_checkpoint"](...) as direct dict calls (wrong shape vs the
-real mcp_server.py signatures) and does its own checkpointing + history
-append. Person A confirmed the intended rewrite makes it reasoning-only (no
-tool calls, no checkpointing, returns only verdict/analysis/learning/
-next_priority/reasoning) -- score_analyst in agent.py already owns
-experiment_history + checkpointing on that assumption. Until the rewritten
-file lands, `judge` stays `stub_judge` here so the graph doesn't call
-mismatched tools. Swap it in by replacing the `g.add_node("judge", stub_judge)`
-line below with:
-    from specialists.experiment_judge import experiment_judge
-    g.add_node("judge", lambda s: experiment_judge(s, tools))
--- once experiment_judge.py no longer touches tools/checkpoints/history directly.
+`judge` is now agent/specialists/experiment_judge.py (2026-08-28 rewrite,
+commit 9e85ac5, "pure reasoning only, remove tools calls and checkpoint
+logic"): it takes no tools argument use, does not touch experiment_history or
+checkpoints, and returns only verdict/analysis/learning/next_priority/
+reasoning -- matching what score_analyst in agent.py already assumed it owns
+(experiment_history + checkpointing stay exclusively there).
 """
 import sys
 import os
@@ -43,6 +35,7 @@ from specialists.sequence_modeller import sequence_modeller
 from specialists.multitask_trainer import multitask_trainer
 from specialists.model_swapper import model_swapper
 from specialists.training_optimizer import training_optimizer
+from specialists.experiment_judge import experiment_judge
 
 SPECIALIST_FNS = {
     "loss_function_changer": loss_function_changer,
@@ -71,8 +64,8 @@ def build_graph(tools: dict):
     for name, fn in SPECIALIST_FNS.items():
         g.add_node(name, lambda s, fn=fn: fn(s, tools))
 
-    # --- Judge stays stubbed -- see module docstring ---
-    g.add_node("judge", stub_judge)
+    # --- Person A's real judge (reasoning-only, no tools/checkpointing) ---
+    g.add_node("judge", lambda s: experiment_judge(s, tools))
 
     g.set_entry_point("baseline_verifier")
 
@@ -91,18 +84,3 @@ def build_graph(tools: dict):
                              {"stop": END, "continue": "supervisor"})
 
     return g.compile()
-
-
-# ---------------------------------------------------------------------------
-def stub_judge(state: AgentState) -> AgentState:
-    """PLACEHOLDER -- see module docstring for why and how to swap it out."""
-    improved = state.get("_improved", False)
-    state["verdict"] = "improved" if improved else "no_change"
-    state["analysis"] = (
-        f"[STUB JUDGE] iteration {state['iteration']}: "
-        f"{'improved' if improved else 'did not improve'} over best "
-        f"({state['best_scores'].get('primary')})."
-    )
-    state["learning"] = ""
-    state["next_priority"] = ""
-    return state
