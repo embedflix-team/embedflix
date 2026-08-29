@@ -4,6 +4,7 @@ checkpoints/
 run_log.jsonl
 resource_log.json
 logs/
+knowledge_db/
 starter-kit/submission.csv
 starter-kit/KuaiRand-Pure/
 .env

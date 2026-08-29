@@ -1,50 +1,70 @@
-# Regenerated 2026-08-28: Person A's original `pip freeze` was missing langgraph,
+# Regenerated 2026-08-29: Person A's original `pip freeze` was missing langgraph,
 # fastmcp, and langchain-mcp-adapters (the three packages agent/mcp_server.py,
 # agent/graph.py and agent/tools_adapter.py actually import) -- a fresh
 # `pip install -r requirements.txt` would hit ModuleNotFoundError immediately.
-# tavily-python added on top (2026-08-28) for the new web_search MCP tool.
+# tavily-python added (2026-08-28) for web_search. chromadb added (2026-08-29)
+# for the read_papers knowledge-base tool.
 #
 # This file is a full `pip freeze` from a clean venv: her original pinned
 # packages installed first, then `pip install langgraph fastmcp
-# langchain-mcp-adapters tavily-python` on top, then froze the result -- so
-# every transitive dependency those pull in (mcp, langgraph-checkpoint,
-# starlette, uvicorn, tiktoken, etc.) is captured and known to resolve
-# together, not hand-picked.
+# langchain-mcp-adapters tavily-python chromadb` on top, then froze the
+# result -- so every transitive dependency those pull in (mcp,
+# langgraph-checkpoint, starlette, uvicorn, tiktoken, onnxruntime,
+# huggingface_hub for chromadb's default embedding model, etc.) is captured
+# and known to resolve together, not hand-picked. `pip check` clean.
 #
 # fastmcp==3.4.7 matches the version this repo's mcp_server.py has actually
 # been tested against.
 aiofile==3.12.3
+aiohappyeyeballs==2.7.1
+aiohttp==3.14.3
+aiosignal==1.4.0
+annotated-doc==0.0.5
 annotated-types==0.8.0
 anthropic==1.2.0
 anyio==4.14.2
 attrs==26.1.0
 Authlib==1.7.2
 backports.tarfile==1.2.0
+bcrypt==5.0.0
 beartype==0.22.9
+build==1.6.0
 cachetools==7.1.7
 caio==0.12.2
 certifi==2026.7.22
 cffi==2.1.1
 charset-normalizer==3.5.1
+chromadb==1.5.9
 click==8.5.0
 cryptography==50.0.1
 cyclopts==4.23.3
 distro==1.9.0
 dnspython==2.8.0
 docstring_parser==0.18.0
+durationpy==0.11
 email-validator==2.3.0
 exceptiongroup==1.3.1
 fastmcp==3.4.7
 fastmcp-slim==3.4.7
+filelock==3.32.4
+flatbuffers==25.12.19
+frozenlist==1.8.0
+fsspec==2026.7.0
+googleapis-common-protos==1.75.2
 griffelib==2.2.0
+grpcio==1.83.1
 h11==0.16.0
+hf-xet==1.6.0
 httpcore==1.0.9
 httpcore2==2.12.0
+httptools==0.8.0
 httpx==0.28.1
 httpx-sse==0.4.3
 httpx2==2.12.0
+huggingface_hub==1.29.0
 idna==3.19
 importlib_metadata==9.0.0
+importlib_resources==7.1.0
 jaraco.classes==3.4.0
 jaraco.context==6.1.2
 jaraco.functools==4.6.0
@@ -58,6 +78,7 @@ jsonschema==4.26.0
 jsonschema-path==0.5.0
 jsonschema-specifications==2025.9.1
 keyring==25.7.0
+kubernetes==36.0.3
 langchain-anthropic==1.7.0
 langchain-core==1.6.1
 langchain-mcp-adapters==0.3.2
@@ -70,15 +91,29 @@ langsmith==0.11.2
 markdown-it-py==4.2.0
 mcp==1.29.1
 mdurl==0.1.2
+mmh3==5.3.0
 more-itertools==11.1.0
+multidict==6.7.1
+numpy==2.4.6
+oauthlib==3.3.1
+onnxruntime==1.29.0
 openapi-pydantic==0.5.1
 opentelemetry-api==1.44.0
+opentelemetry-exporter-otlp-proto-common==1.44.0
+opentelemetry-exporter-otlp-proto-grpc==1.44.0
+opentelemetry-proto==1.44.0
+opentelemetry-sdk==1.44.0
+opentelemetry-semantic-conventions==0.65b0
 orjson==3.12.0
 ormsgpack==1.12.2
+overrides==7.7.0
 packaging==26.3
 pathable==0.6.0
 platformdirs==4.11.5
+propcache==0.5.2
+protobuf==7.36.0
 py-key-value-aio==0.4.5
+pybase64==1.5.0
 pycparser==3.0
 pydantic==2.13.4
 pydantic-settings==2.15.0
@@ -86,32 +121,44 @@ pydantic_core==2.46.4
 Pygments==2.21.0
 PyJWT==2.13.0
 pyperclip==1.11.0
+PyPika==0.51.1
+pyproject_hooks==1.2.0
+python-dateutil==2.9.0.post0
 python-dotenv==1.2.3
 python-multipart==0.0.32
 PyYAML==6.0.3
 referencing==0.37.0
 regex==2026.7.19
 requests==2.34.2
+requests-oauthlib==2.0.0
 requests-toolbelt==1.0.0
 rich==15.0.0
 rich-rst==2.1.0
 rpds-py==2026.6.3
 SecretStorage==3.5.0
+shellingham==1.5.4
+six==1.17.0
 sniffio==1.3.1
 sse-starlette==3.4.8
 starlette==1.6.0
 tavily-python==0.8.0
 tenacity==9.1.4
 tiktoken==0.14.0
+tokenizers==0.23.1
+tqdm==4.70.0
 truststore==0.10.4
+typer==0.27.2
 typing-inspection==0.4.4
 typing_extensions==4.16.0
 uncalled-for==0.4.0
 urllib3==2.7.0
 uuid_utils==0.17.0
 uvicorn==0.52.4
+uvloop==0.22.1
 watchfiles==1.2.0
+websocket-client==1.9.1
 websockets==16.1.1
 xxhash==4.0.1
+yarl==1.24.5
 zipp==4.1.0
 zstandard==0.25.0

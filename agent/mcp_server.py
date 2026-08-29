@@ -278,6 +278,37 @@ def _clean_results(results: list, search_type: str) -> str:
     return "\n\n---\n\n".join(cleaned)
 
 
+# ── Tool 11: Read local knowledge base (offline fallback for web_search) ──────
+@mcp.tool
+def read_papers(
+    query: Annotated[str, "What to look up (e.g. 'BPR loss implementation')"],
+    domain: Annotated[
+        str,
+        "Optional: scope to one specialist's area -- 'loss_function_changer', "
+        "'sequence_modeller', 'multitask_trainer', 'model_swapper', "
+        "'training_optimizer', or omit/'' for general dataset + organizer-hint content",
+    ] = "",
+    n_results: Annotated[int, "Number of reference chunks to return"] = 3,
+) -> dict:
+    """
+    Retrieves curated ML reference material from the local knowledge base
+    (agent/knowledge_base.py) -- BPR/softmax/focal loss math, DIN sequence
+    modeling, multi-task learning, dataset facts, and organizer hints on
+    what's already been tried with no gain. Works fully offline, no API key
+    required (unlike web_search's Tavily dependency) -- use this when
+    web_search fails, or any time as a cheap grounding check alongside it.
+
+    Returns {"results": <formatted text>, "query": .., "domain": ..} -- same
+    dict shape as web_search, so specialists can read either the same way
+    (result.get("results", ...)).
+    """
+    from knowledge_base import query_knowledge_base
+
+    domain_arg = domain if domain else None
+    text = query_knowledge_base(query, domain=domain_arg, n_results=n_results)
+    return {"results": text, "query": query, "domain": domain or "general"}
+
+
 # ── Entrypoint ────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     # fastmcp dev mcp_server.py  →  hot-reload + inspector UI

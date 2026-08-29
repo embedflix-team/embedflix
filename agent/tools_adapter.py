@@ -47,4 +47,5 @@ def build_tools():
         "format_submission": DirectTool(_m.format_submission),
         "parse_scores": DirectTool(_m.parse_scores),
         "web_search": DirectTool(_m.web_search),
+        "read_papers": DirectTool(_m.read_papers),
     }
