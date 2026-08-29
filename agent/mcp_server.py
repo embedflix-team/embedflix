@@ -220,6 +220,64 @@ def parse_scores(
         result["nDCG@5"] = float(match.group(2))
         result["primary"] = float(match.group(3))
     return result
+# ── Tool 10: Web search (live research) ───────────────────────────────────────
+@mcp.tool
+def web_search(
+    query: Annotated[str, "Search query"],
+    search_type: Annotated[str, "'concept' for papers/ideas, 'code' for implementations"] = "concept",
+    n_results: Annotated[int, "Number of results"] = 3,
+) -> dict:
+    """
+    Searches the web for ML research. Use search_type='concept' first to
+    discover techniques (e.g. "improve GAUC ranking loss" -> discovers "BPR
+    loss"), then search_type='code' with the technique name to find a real
+    implementation to adapt (e.g. "BPR loss numpy implementation").
+
+    Returns {"results": <cleaned text>, "query": .., "search_type": ..} --
+    dict shape matches what every specialist actually reads
+    (concept_results.get("results", ...)), not a bare string.
+
+    Requires TAVILY_API_KEY in the environment. If the key is missing or the
+    search fails for any reason, "results" carries a message saying so
+    instead of raising -- the agent should proceed on its own knowledge
+    rather than stall the run over a flaky network call.
+    """
+    try:
+        from tavily import TavilyClient
+        client = TavilyClient(api_key=os.environ["TAVILY_API_KEY"])
+        search_query = query
+        if search_type == "code":
+            # Code search targets GitHub / Papers with Code specifically.
+            search_query = f"site:github.com {query} OR site:paperswithcode.com {query}"
+        raw_results = client.search(search_query, max_results=n_results)
+        cleaned = _clean_results(raw_results["results"], search_type)
+    except Exception as e:
+        cleaned = f"Search failed: {e}. Proceed with your existing knowledge."
+    return {"results": cleaned, "query": query, "search_type": search_type}
+
+
+_CODE_FENCE_RE = re.compile(r"```(?:\w*\n)?(.*?)```", re.DOTALL)
+
+
+def _clean_results(results: list, search_type: str) -> str:
+    """Strips noise from search results before prompt injection."""
+    cleaned = []
+    for r in results:
+        title = r.get("title", "untitled")
+        content = r.get("content", "")
+        content = re.sub(r"https?://\S+", "", content)
+        if search_type == "code":
+            # Prefer actual fenced code blocks if the page has any; fall back
+            # to the raw (URL-stripped) content otherwise.
+            fences = _CODE_FENCE_RE.findall(content)
+            body = "\n\n".join(f.strip() for f in fences) if fences else content
+            body = body[:800]
+            cleaned.append(f"SOURCE: {title}\n{body}")
+        else:
+            cleaned.append(f"CONCEPT: {title}\n{content[:500]}")
+    return "\n\n---\n\n".join(cleaned)
+
+
 # ── Entrypoint ────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     # fastmcp dev mcp_server.py  →  hot-reload + inspector UI

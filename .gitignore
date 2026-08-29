@@ -3,5 +3,7 @@ __pycache__/
 checkpoints/
 run_log.jsonl
 resource_log.json
+logs/
 starter-kit/submission.csv
 starter-kit/KuaiRand-Pure/
+.env
