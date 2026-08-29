@@ -1,6 +1,8 @@
 # agent/specialists/multitask_trainer.py
 from anthropic import Anthropic
 import os
+from agent.logger import log_node_start, log_node_result
+import time
 
 client = Anthropic()
 
@@ -11,6 +13,8 @@ def multitask_trainer(state: dict, tools: dict) -> dict:
     Phase 2: web_search for code blueprint
     """
 
+    node_start = time.time()
+    log_node_start("multitask_trainer", state.get("iteration", 1))
     history_summary = _summarize_history(state.get("experiment_history", []))
     tried = state.get("tried_approaches", [])
     primary = state.get("current_scores", {}).get("primary", 0.6016)
@@ -75,6 +79,17 @@ REASONING: [2-3 sentences of ML reasoning for judge logs]
 
     text = response.content[0].text
     parsed = _parse_response(text)
+    log_node_result(
+        node_name="multitask_trainer",
+        iteration=state.get("iteration", 1),
+        hypothesis=parsed["hypothesis"],
+        issue_found="Only long_view label used — 11 signals wasted",
+        proposed_fix=parsed["code_instruction"],
+        reasoning=parsed["reasoning"],
+        duration_seconds=time.time() - node_start,
+        tokens_in=response.usage.input_tokens,
+        tokens_out=response.usage.output_tokens,
+    )
 
     return {
         **state,

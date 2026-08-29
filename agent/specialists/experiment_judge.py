@@ -1,5 +1,7 @@
 # agent/specialists/experiment_judge.py
 from anthropic import Anthropic
+import time
+from datetime import datetime
 
 client = Anthropic()
 
@@ -10,6 +12,8 @@ def experiment_judge(state: dict, tools: dict) -> dict:
     Phase 2: web_search for what the literature says about this result pattern
     """
 
+    node_start = time.time()
+    log_node_start("multitask_trainer", state.get("iteration", 1))
     history_summary = _summarize_history(state.get("experiment_history", []))
     current = state.get("current_scores", {}).get("primary", 0.6016)
     best = state.get("best_scores", {}).get("primary", 0.6016)
@@ -83,6 +87,17 @@ REASONING: [one sentence summary for the run log]
 
     text = response.content[0].text
     parsed = _parse_response(text)
+    log_node_result(
+        node_name="multitask_trainer",
+        iteration=state.get("iteration", 1),
+        hypothesis=parsed["hypothesis"],
+        issue_found="Only long_view label used — 11 signals wasted",
+        proposed_fix=parsed["code_instruction"],
+        reasoning=parsed["reasoning"],
+        duration_seconds=time.time() - node_start,
+        tokens_in=response.usage.input_tokens,
+        tokens_out=response.usage.output_tokens,
+    )
 
     return {
         **state,

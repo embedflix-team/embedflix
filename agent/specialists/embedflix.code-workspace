@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"name": "embedflix",
+			"path": "../.."
+		},
+		{
+			"name": "KuaiRand-Pure",
+			"path": "../../../../Downloads/kuairand-starter-kit/KuaiRand-Pure"
+		}
+	],
+	"settings": {}
+}
