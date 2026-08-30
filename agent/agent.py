@@ -24,7 +24,7 @@ import time
 from state import AgentState, normalize_scores
 
 EPSILON = 0.002
-N_CONVERGE = 3
+N_CONVERGE = 5
 MAX_ITERATIONS = 50
 MAX_WALL_HOURS = 6
 
@@ -212,7 +212,7 @@ NEW_CODE:
     client = _get_client()
     response = client.messages.create(
         model=CODE_WRITER_MODEL,
-        max_tokens=2000,
+        max_tokens=4000,
         messages=[{"role": "user", "content": prompt}],
     )
     text = response.content[0].text
@@ -370,11 +370,14 @@ def log_and_track(state: AgentState, tools: dict) -> AgentState:
         logged_hypothesis = logged_hypothesis + "\n\n" + "\n".join(extra_bits)
 
     tools["log_iteration"]({
-        "iteration": state["iteration"],
-        "hypothesis": logged_hypothesis,
-        "code_diff": state.get("code_diff", ""),
-        "gauc": raw_scores.get("GAUC") or raw_scores.get("gauc"), "ndcg": raw_scores.get("nDCG@5") or raw_scores.get("ndcg5"),
-        "error": state.get("error_message") or "", "recovery": state.get("recovery_action", ""),
+    "iteration": state["iteration"],
+    "hypothesis": logged_hypothesis,
+    "code_diff": state.get("code_diff", ""),
+    "gauc": raw_scores.get("GAUC") or raw_scores.get("gauc"),
+    "ndcg": raw_scores.get("nDCG@5") or raw_scores.get("ndcg5"),
+    "primary": raw_scores.get("primary"),
+    "error": state.get("error_message") or "",
+    "recovery": state.get("recovery_action", ""),
     })
     wall = time.time() - state["run_start_time"]
     tools["track_resources"]({
