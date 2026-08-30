@@ -36,7 +36,7 @@ def run_random(splits, seed=0):
 
 # ---------------- Factorization Machine ----------------
 class FM:
-    def __init__(self, dim, k=16, lr=0.001, l2=1e-6, seed=0):
+    def __init__(self, dim, k=16, lr=0.001, l2=1e-5, seed=0):
         rng = np.random.default_rng(seed)
         self.V = rng.normal(0, 0.01, (dim, k)).astype(np.float32)
         self.W = np.zeros(dim, dtype=np.float32)
@@ -106,13 +106,14 @@ class FM:
 
 def run_fm(splits, k=16, lr=0.001, epochs=40, bs=8192, patience=4, seed=0, verbose=True):
     enc, dim = encode(splits)
-    Xtr, ytr, _ = enc['train']; Xva, yva, uva = enc['valid']; Xte, yte, ute = enc['test']
+    Xtr, ytr, utr = enc['train']; Xva, yva, uva = enc['valid']; Xte, yte, ute = enc['test']
+    utr = np.array(utr)
     m = FM(dim, k=k, lr=lr, seed=seed)
     rng = np.random.default_rng(seed)
     best, best_state, bad = -1, None, 0
     for ep in range(1, epochs + 1):
         idx = rng.permutation(len(ytr)); t0 = time.time()
-        losses = [m.step(Xtr[idx[i:i + bs]], ytr[idx[i:i + bs]]) for i in range(0, len(idx), bs)]
+        losses = [m.step(Xtr[idx[i:i+bs]], ytr[idx[i:i+bs]], users=utr[idx[i:i+bs]]) for i in range(0, len(idx), bs)]
         va = evaluate(uva, yva, m.predict(Xva))
         if verbose:
             print(f"  epoch {ep:2d} | loss {np.mean(losses):.4f} | valid GAUC {va['GAUC']:.4f} "

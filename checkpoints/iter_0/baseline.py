@@ -52,22 +52,54 @@ class FM:
         inter = 0.5 * ((S ** 2).sum(1) - (E ** 2).sum((1, 2)))
         return self.b + self.W[X].sum(1) + inter, E, S
 
-    def step(self, X, y):
+    def step(self, X, y, users=None):
         B = len(y)
         z, E, S = self.logits(X)
-        g = ((sigmoid(z) - y) / B).astype(np.float32)    # (B,)
+
+        # BPR pairwise loss: mask pos/neg within the batch globally
+        pos_mask = y == 1
+        neg_mask = y == 0
+        pos_idxs = np.where(pos_mask)[0]
+        neg_idxs = np.where(neg_mask)[0]
+
+        if len(pos_idxs) == 0 or len(neg_idxs) == 0:
+            # No valid pairs: skip update, return 0 loss
+            return 0.0
+
+        n_pairs = min(len(pos_idxs), len(neg_idxs))
+        pos_idxs = pos_idxs[:n_pairs]
+        neg_idxs = neg_idxs[:n_pairs]
+
+        z_pos = z[pos_idxs]
+        z_neg = z[neg_idxs]
+        diff = z_pos - z_neg                          # (n_pairs,)
+        sig_diff = sigmoid(diff)                      # (n_pairs,)
+        bpr_loss = float(-np.mean(np.log(sig_diff + 1e-8)))
+
+        # Gradient of BPR loss w.r.t. z: d(-log sigmoid(diff))/dz
+        # d/dz_pos = -(1 - sig_diff) / n_pairs
+        # d/dz_neg = +(1 - sig_diff) / n_pairs
+        grad_diff = -(1.0 - sig_diff) / n_pairs      # (n_pairs,)
+        gz = np.zeros(B, dtype=np.float32)
+        np.add.at(gz, pos_idxs, grad_diff)
+        np.add.at(gz, neg_idxs, -grad_diff)
+
+        # Backprop through FM logits
+        # dL/dW[X[i]] += gz[i]
+        # dL/dV[X[i]] += gz[i] * (S[i] - E[i])
         gV = np.zeros_like(self.V); gW = np.zeros_like(self.W)
-        np.add.at(gW, X, g[:, None])
-        np.add.at(gV, X, g[:, None, None] * (S[:, None, :] - E))
+        np.add.at(gW, X, gz[:, None])
+        np.add.at(gV, X, gz[:, None, None] * (S[:, None, :] - E))
         gV += self.l2 * self.V; gW += self.l2 * self.W
+
         self.t += 1
         b1, b2, eps = 0.9, 0.999, 1e-8
         for P, G, M, Vv in ((self.V, gV, self.mV, self.vV), (self.W, gW, self.mW, self.vW)):
             M *= b1; M += (1 - b1) * G
             Vv *= b2; Vv += (1 - b2) * (G * G)
             P -= self.lr * (M / (1 - b1 ** self.t)) / (np.sqrt(Vv / (1 - b2 ** self.t)) + eps)
-        self.b -= self.lr * g.sum()
-        return float(-np.mean(y * np.log(sigmoid(z) + 1e-9) + (1 - y) * np.log(1 - sigmoid(z) + 1e-9)))
+        self.b -= self.lr * gz.sum()
+        return bpr_loss
 
     def predict(self, X, bs=200_000):
         return np.concatenate([self.logits(X[i:i + bs])[0] for i in range(0, len(X), bs)])
