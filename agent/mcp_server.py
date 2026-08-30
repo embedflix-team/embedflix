@@ -81,12 +81,26 @@ def edit_file(
     full_path = os.path.join(STARTER_KIT, file_path)
     try:
         with open(full_path) as f:
-            content = f.read()
-        if old_code not in content:
+            original_content = f.read()
+        if old_code not in original_content:
             return f"ERROR: exact string not found in {file_path}. No changes made."
-        new_content = content.replace(old_code, new_code, 1)
+        new_content = original_content.replace(old_code, new_code, 1)
         with open(full_path, "w") as f:
             f.write(new_content)
+
+        # code_writer's edits are LLM-generated and can come back truncated
+        # (e.g. a big multitask/DeepFM rewrite hitting max_tokens mid-write),
+        # which silently lands as a syntax error on disk otherwise. Validate
+        # before accepting the edit and revert if it doesn't parse.
+        if full_path.endswith(".py"):
+            import py_compile
+            try:
+                py_compile.compile(full_path, doraise=True)
+            except py_compile.PyCompileError as e:
+                with open(full_path, "w") as f:
+                    f.write(original_content)
+                return f"ERROR: syntax check failed after edit, reverted -- {e}"
+
         return f"SUCCESS: {file_path} updated."
     except Exception as e:
         return f"ERROR: {e}"

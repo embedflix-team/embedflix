@@ -201,6 +201,11 @@ INSTRUCTION FROM SPECIALIST:
         prompt += f"\nYOUR PREVIOUS ATTEMPT WAS REJECTED:\n{prior_feedback}\n"
 
     prompt += """
+IMPORTANT: Keep NEW_CODE as minimal as possible.
+Do not rewrite the entire class.
+Make the smallest possible change that implements the instruction.
+Maximum 50 lines of new code.
+
 Respond in EXACTLY this format and nothing else:
 FILE: baseline.py
 OLD_CODE:
