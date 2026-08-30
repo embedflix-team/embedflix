@@ -46,7 +46,7 @@ def run_pipeline(
         shell=True,
         capture_output=True,
         text=True,
-        timeout=300,
+        timeout=600,
         cwd=STARTER_KIT,
     )
     return result.stdout + result.stderr

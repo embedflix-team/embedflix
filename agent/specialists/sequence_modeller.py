@@ -13,7 +13,7 @@ def sequence_modeller(state: dict, tools: dict) -> dict:
 
     history_summary = _summarize_history(state.get("experiment_history", []))
     tried = state.get("tried_approaches", [])
-    primary = state.get("current_scores", {}).get("primary", 0.6016)
+    primary = state.get("current_scores", {}).get("primary") or 0.6016
 
     # PHASE 1 — discover concept
     concept_results = tools["web_search"]({

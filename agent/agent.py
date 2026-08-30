@@ -24,7 +24,7 @@ import time
 from state import AgentState, normalize_scores
 
 EPSILON = 0.002
-N_CONVERGE = 3
+N_CONVERGE = 5
 MAX_ITERATIONS = 50
 MAX_WALL_HOURS = 6
 
@@ -43,8 +43,8 @@ def baseline_verifier(state: AgentState, tools: dict) -> AgentState:
     """Runs FM unmodified, confirms it matches published baseline (~0.6016
     valid primary), saves checkpoint 0, logs iteration 0, and seeds
     current_code for the first supervisor/specialist call."""
-    output = tools["run_pipeline"].invoke({})
-    raw_scores = tools["parse_scores"].invoke({"pipeline_output": output})
+    output = tools["run_pipeline"]({})
+    raw_scores = tools["parse_scores"]({"pipeline_output": output})
 
     if raw_scores.get("primary") is None:
         state["error_message"] = f"BASELINE FAILED TO REPRODUCE. Raw output tail:\n{output[-500:]}"
@@ -52,10 +52,10 @@ def baseline_verifier(state: AgentState, tools: dict) -> AgentState:
         return state
 
     scores = normalize_scores(raw_scores)
-    tools["save_checkpoint"].invoke({"iteration": 0, "primary_score": raw_scores["primary"]})
-    tools["log_iteration"].invoke({
+    tools["save_checkpoint"]({"iteration": 0, "primary_score": raw_scores["primary"]})
+    tools["log_iteration"]({
         "iteration": 0, "hypothesis": "baseline verification (FM, unmodified)",
-        "code_diff": "", "gauc": raw_scores["GAUC"], "ndcg": raw_scores["nDCG@5"],
+        "code_diff": "", "gauc": raw_scores.get("GAUC") or raw_scores.get("gauc"), "ndcg": raw_scores.get("nDCG@5") or raw_scores.get("ndcg5"),
         "primary": raw_scores["primary"], "error": "", "recovery": "",
     })
 
@@ -69,7 +69,7 @@ def baseline_verifier(state: AgentState, tools: dict) -> AgentState:
         "improved": True,
     }]
     state["tried_approaches"] = []
-    state["current_code"] = tools["read_file"].invoke({"file_path": "baseline.py"})
+    state["current_code"] = tools["read_file"]({"file_path": "baseline.py"})
     state["run_start_time"] = time.time()
     state["total_tokens"] = 0
     state["iterations_without_improvement"] = 0
@@ -148,7 +148,7 @@ def code_writer(state: AgentState, tools: dict) -> AgentState:
         )
         return state
 
-    result = tools["edit_file"].invoke({
+    result = tools["edit_file"]({
         "file_path": parsed["file"], "old_code": parsed["old_code"], "new_code": parsed["new_code"],
     })
     if not result.startswith("SUCCESS"):
@@ -212,7 +212,7 @@ NEW_CODE:
     client = _get_client()
     response = client.messages.create(
         model=CODE_WRITER_MODEL,
-        max_tokens=2000,
+        max_tokens=4000,
         messages=[{"role": "user", "content": prompt}],
     )
     text = response.content[0].text
@@ -244,8 +244,8 @@ def pipeline_runner(state: AgentState, tools: dict) -> AgentState:
     error_message here rather than raising."""
     t0 = time.time()
     try:
-        output = tools["run_pipeline"].invoke({})
-        raw_scores = tools["parse_scores"].invoke({"pipeline_output": output})
+        output = tools["run_pipeline"]({})
+        raw_scores = tools["parse_scores"]({"pipeline_output": output})
         state["run_wall_seconds"] = state.get("run_wall_seconds", 0.0) + (time.time() - t0)
 
         if raw_scores.get("primary") is None:
@@ -275,7 +275,7 @@ def error_recovery(state: AgentState, tools: dict) -> AgentState:
     state["_recovery_attempts"] = attempts
 
     if attempts > 3:
-        tools["restore_checkpoint"].invoke({"iteration": state["best_iteration"]})
+        tools["restore_checkpoint"]({"iteration": state["best_iteration"]})
         state["recovery_action"] = f"RESTORE: exceeded 3 fix attempts, rolled back to checkpoint {state['best_iteration']}"
         state["error_message"] = None
         state["_recovery_attempts"] = 0
@@ -290,7 +290,7 @@ def error_recovery(state: AgentState, tools: dict) -> AgentState:
         state["recovery_action"] = "FIX: installed missing torch dependency"
         state["error_message"] = None
     else:
-        tools["restore_checkpoint"].invoke({"iteration": state["best_iteration"]})
+        tools["restore_checkpoint"]({"iteration": state["best_iteration"]})
         state["recovery_action"] = f"RESTORE: rolled back to checkpoint {state['best_iteration']} -- {err[:200]}"
         state["error_message"] = None
         state["_recovery_attempts"] = 0
@@ -318,12 +318,12 @@ def score_analyst(state: AgentState, tools: dict) -> AgentState:
     improved = (scores.get("primary") or -1) > (best.get("primary") or -1) + IMPROVE_THRESHOLD
 
     if improved:
-        tools["save_checkpoint"].invoke({"iteration": iteration, "primary_score": raw_scores["primary"]})
+        tools["save_checkpoint"]({"iteration": iteration, "primary_score": scores.get("primary", 0.0)})
         state["best_scores"] = scores
         state["best_iteration"] = iteration
         state["iterations_without_improvement"] = 0
     else:
-        tools["restore_checkpoint"].invoke({"iteration": state["best_iteration"]})
+        tools["restore_checkpoint"]({"iteration": state["best_iteration"]})
         state["iterations_without_improvement"] = state.get("iterations_without_improvement", 0) + 1
 
     specialist = state.get("next_specialist", "unknown")
@@ -336,7 +336,7 @@ def score_analyst(state: AgentState, tools: dict) -> AgentState:
     # Refresh AFTER the accept/reject restore above, so this always reflects
     # what's actually on disk (the new code if accepted, the rolled-back
     # best-known code if rejected).
-    state["current_code"] = tools["read_file"].invoke({"file_path": "baseline.py"})
+    state["current_code"] = tools["read_file"]({"file_path": "baseline.py"})
     state["_improved"] = improved
     return state
 
@@ -369,15 +369,18 @@ def log_and_track(state: AgentState, tools: dict) -> AgentState:
     if extra_bits:
         logged_hypothesis = logged_hypothesis + "\n\n" + "\n".join(extra_bits)
 
-    tools["log_iteration"].invoke({
-        "iteration": state["iteration"],
-        "hypothesis": logged_hypothesis,
-        "code_diff": state.get("code_diff", ""),
-        "gauc": raw_scores.get("GAUC"), "ndcg": raw_scores.get("nDCG@5"), "primary": raw_scores.get("primary"),
-        "error": state.get("error_message") or "", "recovery": state.get("recovery_action", ""),
+    tools["log_iteration"]({
+    "iteration": state["iteration"],
+    "hypothesis": logged_hypothesis,
+    "code_diff": state.get("code_diff", ""),
+    "gauc": raw_scores.get("GAUC") or raw_scores.get("gauc"),
+    "ndcg": raw_scores.get("nDCG@5") or raw_scores.get("ndcg5"),
+    "primary": raw_scores.get("primary"),
+    "error": state.get("error_message") or "",
+    "recovery": state.get("recovery_action", ""),
     })
     wall = time.time() - state["run_start_time"]
-    tools["track_resources"].invoke({
+    tools["track_resources"]({
         "iteration": state["iteration"], "tokens": state.get("total_tokens", 0), "wall_seconds": wall,
     })
 
@@ -407,7 +410,7 @@ def convergence_checker(state: AgentState, tools: dict) -> AgentState:
     state["should_stop"] = stop_reason is not None
     if stop_reason:
         state["_stop_reason"] = stop_reason
-        tools["format_submission"].invoke({"split": "test"})
+        tools["format_submission"]({"split": "test"})
     return state
 
 
