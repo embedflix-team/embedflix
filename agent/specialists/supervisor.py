@@ -103,11 +103,14 @@ def _summarize_history(history: list) -> str:
         return "No experiments yet. This is iteration 1."
     lines = []
     for h in history[-10:]:  # last 10 for supervisor — needs more context
-        delta = h.get("primary", 0) - 0.6016
+        primary_val = h.get("primary")
+        # primary_val can be None (e.g. a recovered iteration whose retry
+        # never produced a real score) -- don't do arithmetic on None.
+        delta_str = f"({primary_val - 0.6016:+.4f} vs baseline)" if primary_val is not None else "(no score -- recovery/error iteration)"
         lines.append(
             f"- Iter {h.get('iteration')}: [{h.get('specialist', '?')}] "
             f"{h.get('hypothesis', '?')} "
-            f"→ primary {h.get('primary', '?')} ({delta:+.4f} vs baseline)"
+            f"→ primary {h.get('primary', '?')} {delta_str}"
         )
     return "\n".join(lines)
 
