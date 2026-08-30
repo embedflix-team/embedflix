@@ -185,6 +185,7 @@ mechanically applied via verbatim string replacement.
   paraphrase, reformat, or reindent it.
 - Keep OLD_CODE as small as it can be while still uniquely identifying the edit
   location and fully covering what needs to change.
+  CRITICAL: If NEW_CODE adds a new parameter to any function, you MUST also update ALL callers of that function in the same edit. Never add a parameter that isn't passed through the full call chain.
 - NEW_CODE is the replacement text implementing the instruction.
 - Target file is baseline.py unless the instruction unambiguously names a
   different file.
