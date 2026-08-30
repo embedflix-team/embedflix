@@ -11,10 +11,10 @@ def experiment_judge(state: dict, tools: dict) -> dict:
     """
 
     history_summary = _summarize_history(state.get("experiment_history", []))
-    current = state.get("current_scores", {}).get("primary", 0.6016)
-    best = state.get("best_scores", {}).get("primary", 0.6016)
-    gauc = state.get("current_scores", {}).get("gauc", 0.6674)
-    ndcg5 = state.get("current_scores", {}).get("ndcg5", 0.5357)
+    current = state.get("current_scores", {}).get("primary") or 0.6016
+    best = state.get("best_scores", {}).get("primary") or 0.6016
+    gauc = state.get("current_scores", {}).get("gauc") or 0.6674
+    ndcg5 = state.get("current_scores", {}).get("ndcg5") or 0.5357
     hypothesis = state.get("hypothesis", "unknown")
     specialist = state.get("next_specialist", "unknown")
     iteration = state.get("iteration", 1)

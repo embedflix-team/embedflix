@@ -22,8 +22,8 @@ def supervisor(state: dict, tools: dict) -> dict:
 
     history_summary = _summarize_history(state.get("experiment_history", []))
     tried = state.get("tried_approaches", [])
-    current = state.get("current_scores", {}).get("primary", 0.6016)
-    best = state.get("best_scores", {}).get("primary", 0.6016)
+    current = state.get("current_scores", {}).get("primary") or 0.6016
+    best = state.get("best_scores", {}).get("primary") or 0.6016
     iteration = state.get("iteration", 1)
 
     prompt = f"""You are the supervisor of an autonomous ML research agent improving 
@@ -103,7 +103,7 @@ def _summarize_history(history: list) -> str:
         return "No experiments yet. This is iteration 1."
     lines = []
     for h in history[-10:]:  # last 10 for supervisor — needs more context
-        delta = h.get("primary", 0) - 0.6016
+        delta = (h.get("primary") or 0) - 0.6016
         lines.append(
             f"- Iter {h.get('iteration')}: [{h.get('specialist', '?')}] "
             f"{h.get('hypothesis', '?')} "
