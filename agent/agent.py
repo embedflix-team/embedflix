@@ -318,7 +318,7 @@ def score_analyst(state: AgentState, tools: dict) -> AgentState:
     improved = (scores.get("primary") or -1) > (best.get("primary") or -1) + IMPROVE_THRESHOLD
 
     if improved:
-        tools["save_checkpoint"].invoke({"iteration": iteration, "primary_score": raw_scores["primary"]})
+        tools["save_checkpoint"].invoke({"iteration": iteration, "primary_score": scores.get("primary", 0.0)})
         state["best_scores"] = scores
         state["best_iteration"] = iteration
         state["iterations_without_improvement"] = 0
