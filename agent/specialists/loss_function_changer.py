@@ -40,13 +40,36 @@ def loss_function_changer(state: dict, tools: dict) -> dict:
     prompt = f"""You are an ML expert improving a KuaiRand-Pure recommender system.
 
 CURRENT SITUATION:
-- Baseline: Factorization Machine trained with log-loss (binary cross-entropy)
+- Baseline: Factorization Machine already trained with BPR (Bayesian Personalized
+  Ranking) pairwise loss -- this is NOT the original log-loss/binary-cross-entropy
+  baseline anymore, a prior iteration already moved it to BPR. FM.step()'s entire
+  loss computation is this one hardcoded BPR block; there is no dispatch on a
+  loss-function choice anywhere in FM.__init__, FM.step, or run_fm.
 - Current primary score: {primary:.4f} (baseline to beat: 0.6016)
 - Metric: primary = mean(GAUC, nDCG@5) — both are RANKING metrics
 - Iteration: {state.get("iteration", 1)}
 
-KEY INSIGHT: Log-loss trains for click probability but we are evaluated on ranking 
-quality. Ranking-aware losses fix this mismatch directly.
+KEY INSIGHT: BPR already trains for pairwise ranking, which is closer to the
+ranking metrics than log-loss was, but it makes a specific assumption (uniform
+random negative sampling within the batch) that alternatives like softmax
+listwise loss or WARP's hard-negative mining can improve on. Since there was
+never an original log-loss path to compare against here, motivate your choice
+against what BPR does today, not against log-loss.
+
+CRITICAL EXECUTION CONSTRAINT: code_writer applies your instruction as exactly
+ONE find-and-replace edit at ONE location in the file. It CANNOT make two edits
+in two different places (e.g. define a new loss function elsewhere in the file
+AND separately change what FM.step() calls) -- only the first part would ever
+land, and FM.step()'s existing hardcoded BPR computation would keep running
+completely unchanged, silently. The resulting score would look like a real
+experiment but would reflect nothing about your proposed loss -- this exact
+failure mode has happened before with a different specialist's edits.
+
+Because of that, your CODE_INSTRUCTION must describe a change made ENTIRELY
+INSIDE FM.step()'s existing body, replacing its current BPR loss computation
+in place with your proposed alternative -- one single contiguous edit, not a
+new function defined elsewhere plus a separate call-site change. Never propose
+a new loss function with a separate, disconnected wiring instruction.
 
 EXPERIMENT HISTORY:
 {history_summary}
@@ -64,9 +87,9 @@ Adapt the code blueprint to fit the existing FM baseline structure.
 Do not invent math — adapt what you found.
 
 Respond in this exact format:
-HYPOTHESIS: [one sentence — what you're trying and why]
-LOSS_CHOICE: [bpr | softmax | focal | warp]
-CODE_INSTRUCTION: [exact instruction for a code writer to implement this in baseline.py]
+HYPOTHESIS: [one sentence — what you're trying and why, relative to the current BPR loss]
+LOSS_CHOICE: [softmax | focal | warp | pointwise]
+CODE_INSTRUCTION: [exact instruction for a code writer to implement this IN PLACE inside FM.step(), replacing its current BPR computation]
 REASONING: [2-3 sentences of ML reasoning for the judge logs]
 """
 
@@ -89,17 +112,20 @@ REASONING: [2-3 sentences of ML reasoning for the judge logs]
 
 
 def _decide_technique(search_results: str, tried: list) -> str:
-    """Pick a technique from phase 1 results that hasn't been tried yet."""
+    """Pick a technique from phase 1 results that hasn't been tried yet.
+    Baseline is already BPR (see prompt), so 'bpr' is deliberately not in this
+    menu -- these are the alternatives TO the current BPR loss, not to a
+    log-loss baseline that no longer exists in the code."""
     candidates = [
-        ("bpr", "Bayesian Personalised Ranking BPR loss"),
         ("softmax", "softmax listwise loss recommender"),
         ("focal", "focal loss class imbalance"),
-        ("warp", "WARP loss pairwise ranking"),
+        ("warp", "WARP loss pairwise ranking hard negative mining"),
+        ("pointwise", "pointwise log-loss binary cross entropy recommender"),
     ]
     for key, technique in candidates:
         if f"loss:{key}" not in tried:
             return technique
-    return "BPR loss pairwise ranking"  # fallback
+    return "softmax listwise loss recommender"  # fallback
 
 
 def _summarize_history(history: list) -> str:
@@ -117,7 +143,7 @@ def _summarize_history(history: list) -> str:
 def _parse_response(text: str) -> dict:
     result = {
         "hypothesis": "",
-        "loss_choice": "bpr",
+        "loss_choice": "softmax",
         "code_instruction": "",
         "reasoning": ""
     }

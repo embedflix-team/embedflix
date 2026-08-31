@@ -2,6 +2,8 @@
 from anthropic import Anthropic
 import os
 
+from specialists.feature_engineer import CANDIDATES as FEATURE_CANDIDATES
+
 client = Anthropic()
 
 # All specialist node names the supervisor can route to
@@ -10,7 +12,8 @@ SPECIALISTS = [
     "sequence_modeller", 
     "multitask_trainer",
     "model_swapper",
-    "training_optimizer"
+    "training_optimizer",
+    "feature_engineer",
 ]
 
 def supervisor(state: dict, tools: dict) -> dict:
@@ -19,9 +22,37 @@ def supervisor(state: dict, tools: dict) -> dict:
     current scores, what's been tried, and decides what to try next.
     This is what judges evaluate for autonomy and innovation quality.
     """
+    tried = state.get("tried_approaches", [])
+
+    # Forced control-flow override, not a prompt-level suggestion: per the
+    # 2026-08-31 experiment design, try feature_engineer's full deterministic
+    # menu before any other specialist, every time, deterministically -- no
+    # LLM call for this decision. This file's own ROUTE_TO parser below is a
+    # fragile single-line scanner (see _parse_response) that silently falls
+    # back to loss_function_changer on a miss, so a prompt-only "always route
+    # to feature_engineer first" rule isn't reliable enough for something
+    # this run's outcome hinges on. Once all FEATURE_CANDIDATES labels appear
+    # in tried_approaches, this no longer fires and normal LLM routing below
+    # resumes (feature_engineer stays a normal, re-pickable ROUTE_TO option).
+    feature_labels = [c[0] for c in FEATURE_CANDIDATES]
+    untried_features = [l for l in feature_labels if l not in tried]
+    if untried_features:
+        reason = (
+            f"Forced: feature_engineer menu not yet exhausted "
+            f"({len(feature_labels) - len(untried_features)}/{len(feature_labels)} tried) -- "
+            "trying the untested numeric engagement-statistics features before any other "
+            "specialist, per the experiment design: if none of them improve the score, the "
+            "run stops early instead of spending budget on loss/model/sequence changes."
+        )
+        return {
+            **state,
+            "next_specialist": "feature_engineer",
+            "routing_reason": reason,
+            "strategy": "Exhaust feature_engineer's deterministic menu first, then resume normal routing.",
+            "reasoning": f"Supervisor routed to feature_engineer (forced): {reason}",
+        }
 
     history_summary = _summarize_history(state.get("experiment_history", []))
-    tried = state.get("tried_approaches", [])
     current = state.get("current_scores", {}).get("primary") or 0.6016
     best = state.get("best_scores", {}).get("primary") or 0.6016
     iteration = state.get("iteration", 1)
@@ -68,21 +99,28 @@ AVAILABLE SPECIALISTS:
 5. training_optimizer — tunes lr, batch size, regularization, patience
    Best when: training is unstable, overfitting, or converging too early
 
+6. feature_engineer — adds bucketed numeric video engagement stats
+   (play_cnt/like_cnt/show_cnt/etc. from video_features_statistic_pure.csv,
+   never used before) as new FM field domains
+   Best when: you want to revisit the feature menu after its forced first
+   pass -- note its 3-candidate menu already runs automatically before your
+   first routing decision each run, so you'll rarely need to pick it
+   yourself unless you want to re-try a candidate
+
 ROUTING RULES:
 - Never repeat a specialist that already failed to improve the score
 - If score improved last iteration, try building on that approach first
 - If score dropped last iteration, try a different specialist
-- If external feature files haven't been used yet, prioritize sequence_modeller 
-  or model_swapper to exploit user_features_pure.csv and video_features_statistic_pure.csv
-- loss_function_changer has already been tried — do NOT route there. Prioritize
-  training_optimizer for small hyperparameter changes first.
+- Check ALREADY TRIED / FULL EXPERIMENT HISTORY above before ruling anything
+  out -- do not assume a specialist has been tried unless it actually
+  appears there for this run
 - If stuck for 2+ iterations, escalate to model_swapper
 - Always explain your routing decision clearly for the judge logs
 
 Decide which specialist to call next and why.
 
 Respond in this exact format:
-ROUTE_TO: [loss_function_changer | sequence_modeller | multitask_trainer | model_swapper | training_optimizer]
+ROUTE_TO: [loss_function_changer | sequence_modeller | multitask_trainer | model_swapper | training_optimizer | feature_engineer]
 ROUTING_REASON: [2-3 sentences explaining why this specialist now, what you expect it to improve, and what signal from history led to this decision]
 STRATEGY: [one sentence — overall strategy for this phase of the run]
 """
