@@ -162,6 +162,36 @@ class EmbedflixTracer(BaseCallbackHandler):
         if outputs.get("hypothesis"):
             _print(f"   💡 {outputs['hypothesis'][:100]}")
 
+        # Log web search results if present in state
+        if outputs.get("_phase1_results"):
+            _write_span({
+                "name": "embedflix.web_search.phase1",
+                "trace_id": _trace_id,
+                "span_id": _new_id(),
+                "timestamp": _now(),
+                "attributes": {
+                    "agent.node": node_name,
+                    "agent.iteration": self._iteration,
+                    "search.phase": str(outputs.get("_phase1_label") or "concept_discovery"),
+                    "search.results": str(outputs.get("_phase1_results", ""))[:500],
+                    "search.query": str(outputs.get("_phase1_query", "")),
+                }
+            })
+        if outputs.get("_phase2_results"):
+            _write_span({
+                "name": "embedflix.web_search.phase2",
+                "trace_id": _trace_id,
+                "span_id": _new_id(),
+                "timestamp": _now(),
+                "attributes": {
+                    "agent.node": node_name,
+                    "agent.iteration": self._iteration,
+                    "search.phase": str(outputs.get("_phase2_label") or "code_blueprint"),
+                    "search.results": str(outputs.get("_phase2_results", ""))[:500],
+                    "search.query": str(outputs.get("_phase2_query", "")),
+                }
+            })
+
     def on_llm_start(self, serialized, prompts, **kwargs):
         """Fires on every LangChain-wrapped LLM call. See the class
         docstring's Known limitation -- this never fires for the raw

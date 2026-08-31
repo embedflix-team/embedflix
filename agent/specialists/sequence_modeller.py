@@ -45,6 +45,10 @@ short-term intent — the strongest signal in short-video recommendation.
 CRITICAL: sequence features must be computed from training data sorted by date ONLY —
 never leak future interactions into past feature windows.
 
+AVAILABLE DATA: user_features_pure.csv (30 user features) and 
+video_features_statistic_pure.csv (62 video features) exist in 
+KuaiRand-Pure/data/ and can be loaded in data.py alongside baseline.py.
+
 EXPERIMENT HISTORY:
 {history_summary}
 

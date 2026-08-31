@@ -44,6 +44,14 @@ WHAT HAS BEEN TRIED:
 FULL EXPERIMENT HISTORY:
 {history_summary}
 
+DATASET CONTEXT (use this to guide specialist selection):
+- KuaiRand-Pure has separate feature files not yet used by baseline:
+  * user_features_pure.csv — 30 user features
+  * video_features_statistic_pure.csv — 62 video statistical features  
+- Current baseline only uses 5 features from the log file
+- data.py handles data loading and can be modified alongside baseline.py
+- Adding these features to the FM input is highest-leverage improvement
+
 AVAILABLE SPECIALISTS:
 1. loss_function_changer — switches from log-loss to BPR/softmax/focal loss
    Best when: model trains well but ranking quality is poor (low nDCG vs GAUC)
@@ -64,6 +72,8 @@ ROUTING RULES:
 - Never repeat a specialist that already failed to improve the score
 - If score improved last iteration, try building on that approach first
 - If score dropped last iteration, try a different specialist
+- If external feature files haven't been used yet, prioritize sequence_modeller 
+  or model_swapper to exploit user_features_pure.csv and video_features_statistic_pure.csv
 - If stuck for 2+ iterations, escalate to model_swapper
 - Prioritize loss_function_changer early — it's the highest-leverage change
 - Always explain your routing decision clearly for the judge logs

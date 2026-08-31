@@ -93,6 +93,21 @@ class AgentState(TypedDict):
     _recovery_attempts: int            # read+written across separate error_recovery calls
     _stop_reason: Optional[str]        # set by convergence_checker
 
+    # Web-search telemetry: each two-phase specialist writes what it searched
+    # (phase 1 = concept discovery, phase 2 = code blueprint) so otel_tracer's
+    # on_chain_end can log it. Declared here or Pregel drops them before the
+    # tracer sees the node's return -- see the note above.
+    _phase1_results: str
+    _phase1_query: str
+    _phase2_results: str
+    _phase2_query: str
+    # Optional per-node overrides for the span's search.phase label. Empty ->
+    # otel_tracer falls back to "concept_discovery" / "code_blueprint". The
+    # judge sets _phase2_label="specialist_context" because its phase-2 search
+    # is another concept lookup, not a code-blueprint search.
+    _phase1_label: str
+    _phase2_label: str
+
 
 def initial_state() -> AgentState:
     import time
@@ -117,7 +132,7 @@ def initial_state() -> AgentState:
         best_scores={"primary": -1.0},
         best_iteration=-1,
         experiment_history=[],
-        tried_approaches=[],
+        tried_approaches=["loss:bpr"],
         current_code="",
         total_tokens=0,
         run_wall_seconds=0.0,
@@ -126,6 +141,12 @@ def initial_state() -> AgentState:
         _improved=False,
         _recovery_attempts=0,
         _stop_reason=None,
+        _phase1_results="",
+        _phase1_query="",
+        _phase2_results="",
+        _phase2_query="",
+        _phase1_label="",
+        _phase2_label="",
     )
 
 
