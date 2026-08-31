@@ -35,7 +35,7 @@ IMPROVE_THRESHOLD = 0.0001
 PROTECTED_FILES = {"evaluate.py"}
 
 CODE_WRITER_MODEL = "claude-haiku-4-5-20251001"
-CODE_WRITER_MAX_RETRIES = 2  # total attempts, not extra retries
+CODE_WRITER_MAX_RETRIES = 3  # total attempts, not extra retries
 
 
 # ---------------------------------------------------------------------------
@@ -144,6 +144,23 @@ def code_writer(state: AgentState, tools: dict) -> AgentState:
             parsed = None
             continue
 
+        # Post-substitution syntax gate. edit_file also checks and reverts, but
+        # by then this retry loop is over -- the edit gets silently dropped and
+        # the iteration runs on unchanged code. Catch it here so the model gets
+        # a corrective retry instead.
+        new_code, _applied, syntax_err = _salvage_new_code(
+            current_code, candidate["old_code"], candidate["new_code"]
+        )
+        if syntax_err is not None:
+            prior_feedback = (
+                f"Applying your edit makes baseline.py fail to parse: {syntax_err}. "
+                "Return ONLY valid Python in NEW_CODE -- no ``` fences, no <CODE>/<NEW_CODE> tags, "
+                "no second FILE:/OLD_CODE:/NEW_CODE: block, and nothing after the code."
+            )
+            parsed = None
+            continue
+
+        candidate["new_code"] = new_code
         parsed = candidate
         break
 
@@ -212,12 +229,22 @@ INSTRUCTION FROM SPECIALIST:
         prompt += f"\nYOUR PREVIOUS ATTEMPT WAS REJECTED:\n{prior_feedback}\n"
 
     prompt += """
-Respond in EXACTLY this format and nothing else:
+Respond with EXACTLY three sections in this order and NOTHING ELSE:
+
 FILE: baseline.py
 OLD_CODE:
-<exact verbatim snippet from CURRENT FILE CONTENTS above>
+(the verbatim snippet copied from CURRENT FILE CONTENTS)
 NEW_CODE:
-<replacement code>
+(the replacement Python, and nothing after it)
+
+Hard rules for the output:
+- Put raw Python under OLD_CODE: and NEW_CODE:. No ``` fences, no <code>/<pre>
+  tags, no XML, no placeholder text in angle brackets.
+- After the last line of NEW_CODE, STOP. Do not add an explanation, a summary,
+  a closing tag, a "Human:"/"Assistant:" line, or a second FILE/OLD_CODE/
+  NEW_CODE block.
+- NEW_CODE on its own must be syntactically valid Python at the same
+  indentation level as OLD_CODE.
 """
 
     client = _get_client()
@@ -225,6 +252,7 @@ NEW_CODE:
         model=CODE_WRITER_MODEL,
         max_tokens=4000,
         messages=[{"role": "user", "content": prompt}],
+        stop_sequences=["\nHuman:", "\nAssistant:", "\n\nHuman:"],
     )
     text = response.content[0].text
     usage = getattr(response, "usage", None)
@@ -232,17 +260,68 @@ NEW_CODE:
     return text, tokens
 
 
+# A leftover marker line inside a captured payload means the split failed.
+_MARKER_LINE_RE = re.compile(r"^(?:FILE|OLD_CODE|NEW_CODE):", re.MULTILINE)
+# Wrapper lines the model intermittently adds around the payload -- ``` fences
+# and pseudo-tags like <CODE>..</CODE>, </NEW_CODE>, <python>. Written verbatim
+# into a .py file every one of these is an instant SyntaxError.
+_WRAPPER_LINE_RE = re.compile(
+    r"^[ \t]*(?:```[a-zA-Z]*|</?(?:code|new_code|old_code|python|pre)>)[ \t]*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def _strip_code_wrappers(s: str) -> str:
+    return _WRAPPER_LINE_RE.sub("", s).strip("\n")
+
+
+def _salvage_new_code(current_code: str, old_code: str, new_code: str):
+    """Apply new_code and confirm the result parses. code_writer's LLM
+    (haiku) intermittently tacks prose, a 'Human:' turn, or a stray closing
+    tag onto the end of NEW_CODE; that trailing junk is always *after* the
+    real code, so drop trailing lines one at a time until the file parses.
+    Returns (effective_new_code, applied_source, error_str_or_None)."""
+    def _apply(nc: str) -> str:
+        return current_code.replace(old_code, nc, 1)
+
+    try:
+        applied = _apply(new_code)
+        compile(applied, "baseline.py", "exec")
+        return new_code, applied, None
+    except SyntaxError as first_err:
+        lines = new_code.split("\n")
+        # Only ever trim trailing lines -- never touch the body.
+        for cut in range(1, min(len(lines), 60)):
+            trimmed = "\n".join(lines[:-cut]).rstrip()
+            if not trimmed:
+                break
+            applied = _apply(trimmed)
+            try:
+                compile(applied, "baseline.py", "exec")
+                return trimmed, applied, None
+            except SyntaxError:
+                continue
+        return new_code, _apply(new_code), f"{first_err.msg} at line {first_err.lineno}"
+
+
 def _parse_file_old_new_block(raw: str):
     m_file = re.search(r"^FILE:\s*(\S+)", raw, re.MULTILINE)
     m_old = re.search(r"^OLD_CODE:\s*\n?(.+?)(?=^NEW_CODE:)", raw, re.MULTILINE | re.DOTALL)
-    m_new = re.search(r"^NEW_CODE:\s*\n?(.+?)\Z", raw, re.MULTILINE | re.DOTALL)
+    # Stop NEW_CODE at the next marker line, not \Z: a second FILE:/OLD_CODE:/
+    # NEW_CODE: block from a chatty model would otherwise be pulled into
+    # new_code verbatim -> SyntaxError on write -> edit_file silently reverts,
+    # so baseline.py never changes and the run no-ops for every iteration.
+    m_new = re.search(r"^NEW_CODE:\s*\n?(.+?)(?=^(?:FILE|OLD_CODE|NEW_CODE):|\Z)",
+                      raw, re.MULTILINE | re.DOTALL)
     if not (m_file and m_old and m_new):
         return None
-    old_code = m_old.group(1).strip("\n")
-    new_code = m_new.group(1).strip("\n")
-    # Strip a stray ``` fence if the model wrapped its snippet in one.
-    old_code = re.sub(r"^```[a-zA-Z]*\n|\n```$", "", old_code).strip("\n")
-    new_code = re.sub(r"^```[a-zA-Z]*\n|\n```$", "", new_code).strip("\n")
+    old_code = _strip_code_wrappers(m_old.group(1).strip("\n"))
+    new_code = _strip_code_wrappers(m_new.group(1).strip("\n"))
+    # If a marker line still survives inside either payload the split is wrong;
+    # bail so code_writer retries with corrective feedback instead of applying
+    # something that can't parse.
+    if _MARKER_LINE_RE.search(old_code) or _MARKER_LINE_RE.search(new_code):
+        return None
     if not old_code or not new_code:
         return None
     return {"file": m_file.group(1).strip(), "old_code": old_code, "new_code": new_code}
