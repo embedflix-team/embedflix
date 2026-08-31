@@ -70,7 +70,7 @@ REASONING: [2-3 sentences of ML reasoning for the judge logs]
 """
 
     response = client.messages.create(
-        model="claude-sonnet-4-6",
+        model="claude-haiku-4-5-20251001",
         max_tokens=1000,
         messages=[{"role": "user", "content": prompt}]
     )

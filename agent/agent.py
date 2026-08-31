@@ -34,7 +34,7 @@ IMPROVE_THRESHOLD = 0.0001
 # depth (mcp_server.edit_file has no allowlist of its own).
 PROTECTED_FILES = {"evaluate.py"}
 
-CODE_WRITER_MODEL = "claude-sonnet-4-6"
+CODE_WRITER_MODEL = "claude-haiku-4-5-20251001"
 CODE_WRITER_MAX_RETRIES = 2  # total attempts, not extra retries
 
 
