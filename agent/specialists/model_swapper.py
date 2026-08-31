@@ -46,6 +46,20 @@ KEY INSIGHT: FM only models second-order interactions. Architectures like DeepFM
 add a neural component that captures arbitrary-order interactions, which 
 significantly improves ranking on sparse categorical data.
 
+CRITICAL EXECUTION CONSTRAINT: the pipeline always runs
+`python3 baseline.py --model fm` -- there is no other entry point, no CLI flag
+to select a different model, and nothing else ever calls a new class. If you
+propose a new class (e.g. a DeepFM-style class) WITHOUT ALSO making the
+existing --model fm path actually use it, that class is permanently dead code
+that never runs and never affects the score -- this has happened before.
+Your instruction MUST do ONE of:
+  (a) modify the existing FM class / run_fm function IN PLACE so the upgrade
+      is what --model fm already executes, or
+  (b) if you add a new class, ALSO explicitly instruct code_writer to change
+      the 'fm': lambda ... entry in the MODELS dispatch dict (near the
+      bottom of baseline.py) to call your new class instead of the old FM.
+Never propose a new class as a standalone addition with no wiring instruction.
+
 EXPERIMENT HISTORY:
 {history_summary}
 
@@ -65,7 +79,7 @@ Remember: numpy only, no torch.
 Respond in this exact format:
 HYPOTHESIS: [one sentence — which architecture to try and why it captures more]
 MODEL_CHOICE: [deepfm | higher_k | dcn | wider_fm | field_aware_fm]
-CODE_INSTRUCTION: [exact instruction for code_writer — what class to add/modify, which forward pass to change, how to keep numpy-only]
+CODE_INSTRUCTION: [exact instruction for code_writer — what class to add/modify, which forward pass to change, how to keep numpy-only, AND explicitly how the MODELS['fm'] dispatch entry gets wired to actually call it]
 REASONING: [2-3 sentences of ML reasoning for judge logs]
 """
 

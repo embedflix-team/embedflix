@@ -331,7 +331,31 @@ def _parse_file_old_new_block(raw: str):
 def pipeline_runner(state: AgentState, tools: dict) -> AgentState:
     """Runs the modified pipeline. A crash or timeout inside run_pipeline
     (subprocess-isolated, 300s cap set in mcp_server.py) surfaces as an
-    error_message here rather than raising."""
+    error_message here rather than raising.
+
+    code_writer sets error_message and returns early when it can never derive
+    or apply a valid edit (OLD_CODE never matched verbatim after retries, a
+    protected-file refusal, or edit_file itself failed/reverted a bad edit).
+    This node used to run anyway -- since baseline.py is unchanged in that
+    case, the pipeline silently re-scored the OLD code as if it were a real
+    experiment, and success here reset error_message to None, wiping out the
+    fact that no edit had actually applied. That made a completely-unapplied
+    edit indistinguishable in the log from 'applied but did not help' --
+    confirmed 2026-08-31 from a real run where sequence_modeller's edit never
+    landed and the iteration silently logged the exact baseline score with an
+    empty code_diff and no visible error.
+
+    Fix: check for an already-set error_message FIRST and skip the run
+    entirely -- no point spending ~90s training on code that never changed.
+    Keep the failure visible (prefixed SKIPPED) so route_after_pipeline_runner
+    sends it to error_recovery, same as a real pipeline crash would.
+    """
+    if state.get("error_message"):
+        state["current_scores"] = {}
+        state["_raw_scores"] = {}  # clear -- do not let a prior iteration's real scores leak into this one's log
+        state["error_message"] = f"SKIPPED (no edit applied): {state['error_message']}"
+        return state
+
     t0 = time.time()
     try:
         output = tools["run_pipeline"]({})
