@@ -52,13 +52,23 @@ to select a different model, and nothing else ever calls a new class. If you
 propose a new class (e.g. a DeepFM-style class) WITHOUT ALSO making the
 existing --model fm path actually use it, that class is permanently dead code
 that never runs and never affects the score -- this has happened before.
-Your instruction MUST do ONE of:
-  (a) modify the existing FM class / run_fm function IN PLACE so the upgrade
-      is what --model fm already executes, or
-  (b) if you add a new class, ALSO explicitly instruct code_writer to change
-      the 'fm': lambda ... entry in the MODELS dispatch dict (near the
-      bottom of baseline.py) to call your new class instead of the old FM.
-Never propose a new class as a standalone addition with no wiring instruction.
+
+ANOTHER HARD CONSTRAINT: code_writer applies your instruction as exactly ONE
+find-and-replace edit at ONE location in the file. It CANNOT make two edits
+in two different places (e.g. add a class near the top AND separately change
+the MODELS dispatch dict near the bottom) -- only the first part would ever
+land, and the model would stay dead code exactly as before.
+
+Because of that, STRONGLY PREFER modifying the existing FM class / run_fm
+function IN PLACE (add the new logic directly inside FM's __init__/step/
+logits/predict methods) -- that is a single edit location and is what
+--model fm already executes, so it is guaranteed reachable. Only propose a
+brand-new separate class if the entire upgrade -- new class definition AND
+the MODELS['fm'] dispatch line that calls it -- can be captured within one
+single contiguous OLD_CODE snippet (i.e. they are close enough together in
+the file to select as one block). If they are not contiguous, do the in-place
+version instead. Never propose a new class with a separate, disconnected
+wiring instruction.
 
 EXPERIMENT HISTORY:
 {history_summary}
@@ -79,7 +89,7 @@ Remember: numpy only, no torch.
 Respond in this exact format:
 HYPOTHESIS: [one sentence — which architecture to try and why it captures more]
 MODEL_CHOICE: [deepfm | higher_k | dcn | wider_fm | field_aware_fm]
-CODE_INSTRUCTION: [exact instruction for code_writer — what class to add/modify, which forward pass to change, how to keep numpy-only, AND explicitly how the MODELS['fm'] dispatch entry gets wired to actually call it]
+CODE_INSTRUCTION: [exact instruction for code_writer — prefer modifying FM/run_fm IN PLACE at one location; how to keep numpy-only; must describe a change code_writer can apply as ONE single contiguous edit]
 REASONING: [2-3 sentences of ML reasoning for judge logs]
 """
 
