@@ -1,5 +1,6 @@
 # agent/specialists/experiment_judge.py
 from anthropic import Anthropic
+import re
 
 client = Anthropic()
 
@@ -27,9 +28,12 @@ def experiment_judge(state: dict, tools: dict) -> dict:
         "n_results": 3
     })
 
-    # PHASE 2 — look up what literature says about this specialist's approach
+    # PHASE 2 — look up what literature says about this experiment's approach.
+    # Query off the hypothesis text, not the internal node name ("model_swapper"
+    # etc.) which means nothing to a web search.
+    approach = hypothesis if hypothesis and hypothesis != "unknown" else "recommender system ranking"
     code_results = tools["web_search"]({
-        "query": f"{specialist} result analysis recommender system when it fails when it works",
+        "query": f"{approach} recommender system when it works when it fails",
         "search_type": "concept",
         "n_results": 2
     })
@@ -116,15 +120,18 @@ def _parse_response(text: str) -> dict:
         "next_priority": "",
         "reasoning": ""
     }
-    for line in text.split("\n"):
-        if line.startswith("VERDICT:"):
-            result["verdict"] = line.replace("VERDICT:", "").strip()
-        elif line.startswith("ANALYSIS:"):
-            result["analysis"] = line.replace("ANALYSIS:", "").strip()
-        elif line.startswith("LEARNING:"):
-            result["learning"] = line.replace("LEARNING:", "").strip()
-        elif line.startswith("NEXT_PRIORITY:"):
-            result["next_priority"] = line.replace("NEXT_PRIORITY:", "").strip()
-        elif line.startswith("REASONING:"):
-            result["reasoning"] = line.replace("REASONING:", "").strip()
+    # Values can span multiple lines (ANALYSIS is 3-4 sentences) and Claude
+    # sometimes decorates the label ("**ANALYSIS:**", "ANALYSIS :"). Capture
+    # each field from its label to the next known label (or end of text)
+    # instead of only its first line.
+    labels = ["VERDICT", "ANALYSIS", "LEARNING", "NEXT_PRIORITY", "REASONING"]
+    label_re = re.compile(r"^[ \t>#*_-]*(" + "|".join(labels) + r")[ \t]*\**[ \t]*:",
+                          re.MULTILINE)
+    matches = list(label_re.finditer(text))
+    for i, m in enumerate(matches):
+        key = m.group(1).lower()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        value = text[m.end():end].strip().strip("*").strip()
+        if key in result:
+            result[key] = value
     return result

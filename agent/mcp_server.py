@@ -259,12 +259,32 @@ def web_search(
     try:
         from tavily import TavilyClient
         client = TavilyClient(api_key=os.environ["TAVILY_API_KEY"])
-        search_query = query
+        # Keep the query tight. Tavily does semantic retrieval, so a long
+        # noun-pile ("mean pooling user watch history embeddings numpy
+        # implementation user history recommender") dilutes the match and
+        # pulls in loosely-related pages.
+        search_query = " ".join(query.split())[:160]
+        kwargs = {"max_results": n_results, "search_depth": "advanced"}
         if search_type == "code":
-            # Code search targets GitHub / Papers with Code specifically.
-            search_query = f"site:github.com {query} OR site:paperswithcode.com {query}"
-        raw_results = client.search(search_query, max_results=n_results)
-        cleaned = _clean_results(raw_results["results"], search_type)
+            # Restrict to code-hosting sites through the API -- Tavily ignores
+            # "site:" operators pasted into the query string, and the old
+            # 'site:github.com {q} OR site:paperswithcode.com {q}' form just
+            # doubled an already-long query. Ask for full page text so
+            # _clean_results can pull real code out.
+            kwargs["include_domains"] = [
+                "github.com", "raw.githubusercontent.com", "gist.github.com",
+                "paperswithcode.com", "stackoverflow.com", "d2l.ai",
+            ]
+            kwargs["include_raw_content"] = "text"
+        raw_results = client.search(search_query, **kwargs)
+        cleaned = _clean_results(raw_results.get("results", []), search_type)
+        if not cleaned.strip() and search_type == "code":
+            # Domain filter can starve results -- retry without it.
+            raw_results = client.search(
+                search_query, max_results=n_results,
+                search_depth="advanced", include_raw_content="text",
+            )
+            cleaned = _clean_results(raw_results.get("results", []), search_type)
     except Exception as e:
         cleaned = f"Search failed: {e}. Proceed with your existing knowledge."
     return {"results": cleaned, "query": query, "search_type": search_type}
@@ -272,22 +292,41 @@ def web_search(
 
 _CODE_FENCE_RE = re.compile(r"```(?:\w*\n)?(.*?)```", re.DOTALL)
 
+# GitHub / SO page chrome that leaks in with include_raw_content="text".
+_NAV_CRUFT_RE = re.compile(
+    r"^\s*(?:skip to content|navigation menu|sign in|sign up|appearance settings"
+    r"|you signed (?:in|out) .*|you switched accounts .*|reload to refresh .*"
+    r"|dismiss alert|\{\{ message \}\}|uh oh!|there was an error while loading.*"
+    r"|please reload this page\.?|search code, repositories.*|provide feedback.*"
+    r"|we read every piece of feedback.*|saved searches.*|use saved searches.*)\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def _strip_nav_cruft(text: str) -> str:
+    return "\n".join(
+        ln for ln in _NAV_CRUFT_RE.sub("", text).splitlines() if ln.strip()
+    )
+
 
 def _clean_results(results: list, search_type: str) -> str:
     """Strips noise from search results before prompt injection."""
     cleaned = []
     for r in results:
         title = r.get("title", "untitled")
-        content = r.get("content", "")
-        content = re.sub(r"https?://\S+", "", content)
+        content = re.sub(r"https?://\S+", "", r.get("content", "") or "")
         if search_type == "code":
-            # Prefer actual fenced code blocks if the page has any; fall back
-            # to the raw (URL-stripped) content otherwise.
-            fences = _CODE_FENCE_RE.findall(content)
-            body = "\n\n".join(f.strip() for f in fences) if fences else content
-            body = body[:800]
-            cleaned.append(f"SOURCE: {title}\n{body}")
-        else:
+            # Prefer the full page text (include_raw_content) and pull out
+            # fenced code blocks; fall back to the snippet if there's no raw
+            # content. Skip a result that has no usable body -- a GitHub topic
+            # index page contributes only navigation cruft.
+            raw = re.sub(r"https?://\S+", "", r.get("raw_content") or "") or content
+            fences = _CODE_FENCE_RE.findall(raw)
+            body = "\n\n".join(f.strip() for f in fences) if fences else _strip_nav_cruft(raw)
+            body = body.strip()[:1000]
+            if len(body) >= 40:
+                cleaned.append(f"SOURCE: {title}\n{body}")
+        elif content.strip():
             cleaned.append(f"CONCEPT: {title}\n{content[:500]}")
     return "\n\n---\n\n".join(cleaned)
 

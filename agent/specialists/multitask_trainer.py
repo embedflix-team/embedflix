@@ -1,6 +1,7 @@
 # agent/specialists/multitask_trainer.py
 from anthropic import Anthropic
 import os
+import re
 
 client = Anthropic()
 
@@ -118,13 +119,20 @@ def _parse_response(text: str) -> dict:
         "code_instruction": "",
         "reasoning": ""
     }
-    for line in text.split("\n"):
-        if line.startswith("HYPOTHESIS:"):
-            result["hypothesis"] = line.replace("HYPOTHESIS:", "").strip()
-        elif line.startswith("MULTITASK_CHOICE:"):
-            result["multitask_choice"] = line.replace("MULTITASK_CHOICE:", "").strip()
-        elif line.startswith("CODE_INSTRUCTION:"):
-            result["code_instruction"] = line.replace("CODE_INSTRUCTION:", "").strip()
-        elif line.startswith("REASONING:"):
-            result["reasoning"] = line.replace("REASONING:", "").strip()
+    # Values can span multiple lines (numbered lists, multi-sentence text) and
+    # Claude sometimes decorates the label ("**CODE_INSTRUCTION:**",
+    # "CODE_INSTRUCTION :"). Capture each field from its label to the next
+    # known label (or end of text) instead of only its first line -- the
+    # first-line scan left code_writer with an empty code_change_instruction
+    # whenever the model answered with a list.
+    labels = ["HYPOTHESIS", "MULTITASK_CHOICE", "CODE_INSTRUCTION", "REASONING"]
+    label_re = re.compile(r"^[ \t>#*_-]*(" + "|".join(labels) + r")[ \t]*\**[ \t]*:",
+                          re.MULTILINE)
+    matches = list(label_re.finditer(text))
+    for i, m in enumerate(matches):
+        key = m.group(1).lower()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        value = text[m.end():end].strip().strip("*").strip()
+        if key in result:
+            result[key] = value
     return result
