@@ -1,102 +1,119 @@
 # agent/specialists/training_optimizer.py
 from anthropic import Anthropic
-import os
 import re
 
 client = Anthropic()
 
+# (label, OLD_CODE, NEW_CODE, one-line description) -- each OLD_CODE is an
+# exact substring of starter-kit/baseline.py's run_fm/FM defaults, verified
+# unique in the file. "lr=0.001" alone also matches FM.__init__'s unrelated
+# default, so lr's OLD_CODE includes "epochs=40" to disambiguate down to the
+# run_fm signature (the one that actually reaches training).
+CHANGES = [
+    ("training:l2", "l2=1e-6", "l2=1e-5",
+     "increase L2 weight regularization to reduce overfitting"),
+    ("training:lr", "lr=0.001, epochs=40", "lr=0.0005, epochs=40",
+     "halve the learning rate for more stable convergence"),
+    ("training:patience", "patience=4", "patience=8",
+     "double early-stopping patience so training doesn't stop before converging"),
+    ("training:bs", "bs=8192", "bs=4096",
+     "halve the batch size for noisier, potentially better-generalizing updates"),
+]
+
+
 def training_optimizer(state: dict, tools: dict) -> dict:
     """
-    Proposes changes to training settings.
-    Phase 1: web_search for concept
-    Phase 2: web_search for code blueprint
+    Proposes ONE of the four fixed, pre-verified single-line hyperparameter
+    edits above to starter-kit/baseline.py -- deliberately not open-ended.
+    The previous version let the LLM invent its own training tweak in free
+    text, and code_writer's resulting edits sometimes never actually touched
+    the real training call (dead code that didn't affect the score). Every
+    OLD_CODE/NEW_CODE pair here is verified to exist verbatim and uniquely
+    in baseline.py, so code_writer has nothing left to invent -- it's a
+    guaranteed single-hunk edit that provably affects training. No web
+    search: these are fixed, known-good edits, not a research question.
     """
-
     history_summary = _summarize_history(state.get("experiment_history", []))
     tried = state.get("tried_approaches", [])
     primary = state.get("current_scores", {}).get("primary") or 0.6016
 
-    # PHASE 1 — discover concept
-    concept_results = tools["web_search"]({
-        "query": "training hyperparameter optimization recommender system learning rate regularization",
-        "search_type": "concept",
-        "n_results": 3
-    })
+    untried = [c for c in CHANGES if c[0] not in tried]
+    menu = untried or CHANGES  # all 4 exhausted -> allow re-picking, still single-line-safe
 
-    technique = _decide_technique(concept_results.get("results", ""), tried)
-
-    # PHASE 2 — get code blueprint
-    code_results = tools["web_search"]({
-        "query": f"{technique} numpy implementation training loop",
-        "search_type": "code",
-        "n_results": 2
-    })
+    menu_text = "\n".join(
+        f"{i + 1}. {label} -- change `{old}` to `{new}` ({desc})"
+        for i, (label, old, new, desc) in enumerate(menu)
+    )
 
     prompt = f"""You are an ML expert improving a KuaiRand-Pure recommender system.
 
 CURRENT SITUATION:
-- Baseline: lr=0.001, batch_size=8192, Adam, early stopping patience=4, k=16, no regularization
+- Baseline: lr=0.001, batch_size=8192, Adam, early stopping patience=4, k=16, l2=1e-6
 - Current primary score: {primary:.4f} (baseline to beat: 0.6016)
 - Metric: primary = mean(GAUC, nDCG@5)
 - Iteration: {state.get("iteration", 1)}
-- Dataset: 1.14M train rows, 124K validation rows, 5 categorical features
-
-KEY INSIGHT: Default training settings are rarely optimal. Small targeted changes
-to lr, regularization, or batch size can improve both convergence and final score.
 
 EXPERIMENT HISTORY:
 {history_summary}
 
 ALREADY TRIED: {tried}
 
-CONCEPT RESEARCH (what you found on the web):
-{concept_results.get("results", "No results")}
+You may ONLY choose ONE of the following exact, pre-verified single-line
+changes to starter-kit/baseline.py -- do not propose anything else, do not
+combine multiple changes, do not invent new code or new parameters:
 
-CODE BLUEPRINT (real implementation reference):
-{code_results.get("results", "No results")}
+{menu_text}
 
-Based on the research above, propose ONE specific training change to baseline.py.
-Adapt the code blueprint to fit the existing FM baseline structure.
-Do not invent math — adapt what you found.
+Pick the one most likely to help given the history above.
 
 Respond in this exact format:
-HYPOTHESIS: [one sentence — what setting to change and why it helps]
-TRAINING_CHOICE: [lr_decay | l2_regularization | larger_batch | smaller_lr | increased_patience | embedding_regularization]
-CODE_INSTRUCTION: [exact instruction for code_writer — which variable to change, what value, where to add logic]
-REASONING: [2-3 sentences of ML reasoning for judge logs]
+CHOICE: [just the number from the list above]
+REASONING: [2-3 sentences of ML reasoning for judge logs -- why this change, given the history]
 """
 
     response = client.messages.create(
         model="claude-haiku-4-5-20251001",
-        max_tokens=1000,
+        max_tokens=400,
         messages=[{"role": "user", "content": prompt}]
     )
 
     text = response.content[0].text
-    parsed = _parse_response(text)
+    idx = _parse_choice(text, len(menu))
+    reasoning = _parse_reasoning(text)
+    label, old_code, new_code, desc = menu[idx]
+
+    hypothesis = f"Training optimizer: {desc} ({label})."
+    code_instruction = (
+        f"In starter-kit/baseline.py, make EXACTLY this single-line change and "
+        f"nothing else: find the exact substring `{old_code}` and replace it "
+        f"with `{new_code}`. Do not touch any other code, do not add new "
+        f"parameters, do not rewrite any function."
+    )
 
     return {
         **state,
-        "hypothesis": parsed["hypothesis"],
-        "code_change_instruction": parsed["code_instruction"],
-        "reasoning": parsed["reasoning"],
-        "tried_approaches": tried + [f"training:{parsed['training_choice']}"]
+        "hypothesis": hypothesis,
+        "code_change_instruction": code_instruction,
+        "reasoning": reasoning or hypothesis,
+        "tried_approaches": tried + [label],
     }
 
 
-def _decide_technique(search_results: str, tried: list) -> str:
-    candidates = [
-        ("l2_regularization", "L2 regularization embedding training"),
-        ("lr_decay", "learning rate decay schedule training"),
-        ("larger_batch", "large batch size training stability"),
-        ("smaller_lr", "small learning rate fine tuning"),
-        ("increased_patience", "early stopping patience tuning"),
-        ("embedding_regularization", "embedding dropout regularization"),
-    ]
-    for key, technique in candidates:
-        if f"training:{key}" not in tried:
-            return technique
-    return "L2 regularization embedding training"
+def _parse_choice(text: str, n: int) -> int:
+    m = re.search(r"CHOICE[ \t]*\**[ \t]*:[ \t]*\**[ \t]*(\d+)", text, re.IGNORECASE)
+    if m:
+        idx = int(m.group(1)) - 1
+        if 0 <= idx < n:
+            return idx
+    return 0
+
+
+def _parse_reasoning(text: str) -> str:
+    # Same multi-line-safe pattern as the other specialists: capture from the
+    # label to the next known label (or end of text), not just its first line.
+    m = re.search(r"REASONING[ \t]*\**[ \t]*:[ \t]*\**[ \t]*(.+)\Z", text,
+                   re.IGNORECASE | re.DOTALL)
+    return m.group(1).strip().strip("*").strip() if m else ""
 
 
 def _summarize_history(history: list) -> str:
@@ -109,29 +126,3 @@ def _summarize_history(history: list) -> str:
             f"→ primary {h.get('primary', '?')}"
         )
     return "\n".join(lines)
-
-
-def _parse_response(text: str) -> dict:
-    result = {
-        "hypothesis": "",
-        "training_choice": "l2_regularization",
-        "code_instruction": "",
-        "reasoning": ""
-    }
-    # Values can span multiple lines (numbered lists, multi-sentence text) and
-    # Claude sometimes decorates the label ("**CODE_INSTRUCTION:**",
-    # "CODE_INSTRUCTION :"). Capture each field from its label to the next
-    # known label (or end of text) instead of only its first line -- the
-    # first-line scan left code_writer with an empty code_change_instruction
-    # whenever the model answered with a list.
-    labels = ["HYPOTHESIS", "TRAINING_CHOICE", "CODE_INSTRUCTION", "REASONING"]
-    label_re = re.compile(r"^[ \t>#*_-]*(" + "|".join(labels) + r")[ \t]*\**[ \t]*:",
-                          re.MULTILINE)
-    matches = list(label_re.finditer(text))
-    for i, m in enumerate(matches):
-        key = m.group(1).lower()
-        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
-        value = text[m.end():end].strip().strip("*").strip()
-        if key in result:
-            result[key] = value
-    return result

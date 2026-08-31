@@ -132,7 +132,7 @@ def initial_state() -> AgentState:
         best_scores={"primary": -1.0},
         best_iteration=-1,
         experiment_history=[],
-        tried_approaches=["loss:bpr"],
+        tried_approaches=["loss:bpr", "loss:softmax", "loss:focal", "loss:warp"],
         current_code="",
         total_tokens=0,
         run_wall_seconds=0.0,

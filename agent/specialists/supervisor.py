@@ -74,8 +74,9 @@ ROUTING RULES:
 - If score dropped last iteration, try a different specialist
 - If external feature files haven't been used yet, prioritize sequence_modeller 
   or model_swapper to exploit user_features_pure.csv and video_features_statistic_pure.csv
+- loss_function_changer has already been tried — do NOT route there. Prioritize
+  training_optimizer for small hyperparameter changes first.
 - If stuck for 2+ iterations, escalate to model_swapper
-- Prioritize loss_function_changer early — it's the highest-leverage change
 - Always explain your routing decision clearly for the judge logs
 
 Decide which specialist to call next and why.
