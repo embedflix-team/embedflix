@@ -76,15 +76,39 @@ FULL EXPERIMENT HISTORY:
 {history_summary}
 
 DATASET CONTEXT (use this to guide specialist selection):
-- KuaiRand-Pure has separate feature files not yet used by baseline:
-  * user_features_pure.csv — 30 user features
-  * video_features_statistic_pure.csv — 62 video statistical features  
-- Current baseline only uses 5 features from the log file
+- Baseline uses only 5 fields: user_id, video_id, author_id, tab, dur_bucket
+- KuaiRand-Pure has two feature files not yet used by baseline (real column
+  names, via data.get_feature_info()):
+  * user_features_pure.csv (30 columns) — user_active_degree,
+    is_lowactive_period, is_live_streamer, is_video_author, follow_user_num(_range),
+    fans_user_num(_range), friend_user_num(_range), register_days(_range),
+    onehot_feat0..17
+  * video_features_statistic_pure.csv (51 columns) — show_cnt, play_cnt,
+    play_duration, complete/valid/long_time/short_time_play_cnt, play_progress,
+    like_cnt, comment_cnt, follow_cnt, share_cnt, download_cnt, collect_cnt,
+    report_cnt, reduce_similar_cnt, and *_user_num variants of most of these
 - data.py handles data loading and can be modified alongside baseline.py
-- Adding these features to the FM input is highest-leverage improvement
+- IMPORTANT — already tested empirically (ablation_features.py against the
+  real held-out split): adding the CATEGORICAL columns from these files
+  (onehot_feat*, user_active_degree, video_type, etc.) as new FM fields makes
+  the score WORSE (0.5953 -> 0.5936 / 0.5933), not better. The untested,
+  promising direction is the NUMERIC engagement-statistics columns
+  (play_cnt/like_cnt/show_cnt/comment_cnt/share_cnt/download_cnt/...),
+  bucketed the same way dur_bucket already is — this is exactly what
+  feature_engineer's menu does. Do not route to a specialist expecting a
+  categorical feature dump to help; it already didn't.
+- NEVER use log-file per-interaction columns (is_click, is_like, is_follow,
+  is_comment, is_forward, play_time_ms) as FM input fields — LABEL
+  ('long_view') is derived from play_time_ms/duration_ms on the same row, and
+  the other is_* columns are simultaneous outcomes of the same impression, so
+  using them as inputs would leak the label rather than genuinely improve
+  ranking. (multitask_trainer's auxiliary-task use of click/like/play_time as
+  a secondary training *target*, not an input feature, is a different and
+  legitimate technique — that's not affected by this rule.)
 
 AVAILABLE SPECIALISTS:
-1. loss_function_changer — switches from log-loss to BPR/softmax/focal loss
+1. loss_function_changer — baseline already trains with BPR pairwise loss;
+   this switches to softmax/focal/warp/pointwise instead
    Best when: model trains well but ranking quality is poor (low nDCG vs GAUC)
    
 2. sequence_modeller — adds user history / recent watch features  
