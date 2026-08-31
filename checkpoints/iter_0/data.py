@@ -9,6 +9,31 @@ SPLITS = {'train': (20220408, 20220421),
 # 5 个特征域。想加特征就往这里加 —— 这是学生最该动的地方之一。
 FIELDS = ['user_id', 'video_id', 'author_id', 'tab', 'dur_bucket']
 
+# Additional feature files available for a specialist to discover columns from
+# (used only for USER-side and VIDEO-side profile/statistic columns -- NOT
+# the log file's per-interaction feedback columns, see note below).
+USER_FEATURE_FILE = os.path.join(os.path.dirname(__file__), 'KuaiRand-Pure/data/user_features_pure.csv')
+VIDEO_FEATURE_FILE = os.path.join(os.path.dirname(__file__), 'KuaiRand-Pure/data/video_features_statistic_pure.csv')
+
+# NOTE: the log file's per-interaction columns (is_click, is_like, is_follow,
+# is_comment, is_forward, play_time_ms, ...) are deliberately NOT exposed here
+# as candidate input features. LABEL ('long_view') is derived from the same
+# row's play_time_ms/duration_ms, and the other is_* columns are simultaneous
+# outcomes of the same impression being predicted -- using any of them as an
+# FM input field would leak the label (a model can't know at serving time
+# whether a user already clicked/liked the very row it's about to rank).
+
+def get_feature_info(user_feature_file=USER_FEATURE_FILE, video_feature_file=VIDEO_FEATURE_FILE):
+    """Returns the real column names available in the untapped user/video
+    feature files, for a specialist (or a human) to discover what exists
+    without having to open the CSVs by hand. Does NOT include log-file
+    columns -- see the leakage note above."""
+    info = {}
+    for name, path in [('user', user_feature_file), ('video', video_feature_file)]:
+        with open(path) as f:
+            info[f'{name}_feature_columns'] = next(csv.reader(f))
+    return info
+
 def load(data_dir):
     """读日志 + 视频侧特征，返回按划分切好的 dict。"""
     vid2author = {}
