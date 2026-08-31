@@ -93,7 +93,15 @@ def code_writer(state: AgentState, tools: dict) -> AgentState:
     match verbatim, and applies the edit via edit_file.
     """
     instruction = (state.get("code_change_instruction") or "").strip()
-    current_code = state.get("current_code") or ""
+    # Always read fresh from disk — state current_code can be stale
+    try:
+        from mcp_server import STARTER_KIT
+        import os
+        fresh_path = os.path.join(STARTER_KIT, "baseline.py")
+        with open(fresh_path) as f:
+            current_code = f.read()
+    except Exception:
+        current_code = state.get("current_code") or ""
 
     if not instruction:
         state["error_message"] = "code_writer: code_change_instruction is empty -- nothing to implement"
@@ -175,20 +183,22 @@ def _propose_edit(current_code: str, instruction: str, prior_feedback: str = Non
     """One LLM call: (instruction, current file) -> FILE/OLD_CODE/NEW_CODE text.
     Returns (response_text, tokens_used)."""
     prompt = f"""You are a precise code-editing assistant for an autonomous ML research agent.
-You will be given the full current contents of baseline.py and a natural-language
-instruction from an ML specialist describing a code change to make.
+    You will be given the full current contents of baseline.py and a natural-language
+    instruction from an ML specialist describing a code change to make.
 
 Produce an EXACT, surgical edit as a FILE / OLD_CODE / NEW_CODE block that can be
 mechanically applied via verbatim string replacement.
 - OLD_CODE must be an exact substring of CURRENT FILE CONTENTS below -- copy it
   character-for-character (matching whitespace and indentation exactly). Do not
   paraphrase, reformat, or reindent it.
-- Keep OLD_CODE as small as it can be while still uniquely identifying the edit
-  location and fully covering what needs to change.
-  CRITICAL: If NEW_CODE adds a new parameter to any function, you MUST also update ALL callers of that function in the same edit. Never add a parameter that isn't passed through the full call chain.
+- Keep OLD_CODE as small as it can be while still uniquely identifying the edit location.
+- CRITICAL: Keep NEW_CODE under 20 lines maximum. Simple targeted changes only.
+- CRITICAL: If NEW_CODE adds a new parameter to any function, you MUST also update ALL callers of that function in the same edit. Never add a parameter that isn't passed through the full call chain.
+- NEVER rewrite entire classes or functions. Change only what is necessary.
+- NEVER add new classes. Only modify existing code.
+- If the instruction requires more than 20 lines of new code, implement only the simplest version that still improves the metric.
 - NEW_CODE is the replacement text implementing the instruction.
-- Target file is baseline.py unless the instruction unambiguously names a
-  different file.
+- Target file is baseline.py unless the instruction unambiguously names a different file.
 
 CURRENT FILE CONTENTS (baseline.py):
 ```python
@@ -202,11 +212,6 @@ INSTRUCTION FROM SPECIALIST:
         prompt += f"\nYOUR PREVIOUS ATTEMPT WAS REJECTED:\n{prior_feedback}\n"
 
     prompt += """
-IMPORTANT: Keep NEW_CODE as minimal as possible.
-Do not rewrite the entire class.
-Make the smallest possible change that implements the instruction.
-Maximum 50 lines of new code.
-
 Respond in EXACTLY this format and nothing else:
 FILE: baseline.py
 OLD_CODE:
