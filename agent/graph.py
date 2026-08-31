@@ -46,6 +46,19 @@ SPECIALIST_FNS = {
 }
 SPECIALISTS = list(SPECIALIST_FNS)
 
+def _extract_specialist_output(result: dict) -> dict:
+    """Extract only keys specialists are allowed to update.
+    Prevents stale full-state snapshots from overwriting good LangGraph state."""
+    if not isinstance(result, dict):
+        raise TypeError(f"Specialist returned {type(result).__name__}, expected dict")
+    keys = [
+        "hypothesis", "code_change_instruction", "reasoning",
+        "tried_approaches", "next_specialist", "routing_reason",
+        "strategy", "verdict", "analysis", "learning", "next_priority",
+        "_phase1_results", "_phase1_query", "_phase2_results", "_phase2_query",
+        "_phase1_label", "_phase2_label",
+    ]
+    return {k: result[k] for k in keys if k in result}
 
 def build_graph(tools: dict):
     g = StateGraph(AgentState)
@@ -62,7 +75,7 @@ def build_graph(tools: dict):
     # --- Person A's real nodes ---
     g.add_node("supervisor", lambda s: supervisor(s, tools))
     for name, fn in SPECIALIST_FNS.items():
-        g.add_node(name, lambda s, fn=fn: fn(s, tools))
+        g.add_node(name, lambda s, fn=fn: _extract_specialist_output(fn(s, tools)))
 
     # --- Person A's real judge (reasoning-only, no tools/checkpointing) ---
     g.add_node("judge", lambda s: experiment_judge(s, tools))
