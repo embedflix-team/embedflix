@@ -554,6 +554,40 @@ def log_and_track(state: AgentState, tools: dict) -> AgentState:
 
 
 # ---------------------------------------------------------------------------
+def _check_feature_phase_gate(state: AgentState):
+    """Per the 2026-08-31 experiment design: supervisor.py forces
+    feature_engineer's full deterministic menu to run before any other
+    specialist (see the forced-override at the top of supervisor()). Once
+    every candidate in that menu has an entry in tried_approaches, this
+    checks whether ANY of them actually improved the score:
+      - if none did, stop the whole run here -- no point spending budget on
+        loss/model/sequence exploration on top of a feature set that has
+        already been shown not to help.
+      - if at least one did, return None immediately and normal convergence
+        rules take over below -- best_scores/checkpoints already carry the
+        winning feature set forward, nothing extra to plumb.
+    Returns a stop_reason string, or None if the gate doesn't apply/pass.
+    """
+    from specialists.feature_engineer import CANDIDATES as FEATURE_CANDIDATES
+    feature_labels = [c[0] for c in FEATURE_CANDIDATES]
+    tried = state.get("tried_approaches", [])
+    if not all(label in tried for label in feature_labels):
+        return None  # menu not exhausted yet -- nothing to decide
+
+    history = state.get("experiment_history", [])
+    feature_iters = [h for h in history if h.get("specialist") == "feature_engineer"]
+    if any(h.get("improved") for h in feature_iters):
+        return None  # at least one candidate helped -- keep going normally
+
+    return (
+        f"Feature engineering phase found no improvement across all "
+        f"{len(feature_labels)} candidates ({feature_labels}) -- stopping "
+        "early per the experiment design: if the untested numeric engagement "
+        "features don't help, further loss/model/sequence exploration isn't "
+        "worth the budget on top of an unhelpful feature set."
+    )
+
+
 def convergence_checker(state: AgentState, tools: dict) -> AgentState:
     """Checks all stopping conditions. Formats final submission if done."""
     wall_hours = (time.time() - state["run_start_time"]) / 3600.0
@@ -565,6 +599,8 @@ def convergence_checker(state: AgentState, tools: dict) -> AgentState:
         stop_reason = f"Hit {MAX_WALL_HOURS}h wall-clock limit"
     elif state.get("iterations_without_improvement", 0) >= N_CONVERGE:
         stop_reason = f"Converged: no improvement > eps={EPSILON} for {N_CONVERGE} consecutive iterations"
+    else:
+        stop_reason = _check_feature_phase_gate(state)
 
     state["should_stop"] = stop_reason is not None
     if stop_reason:

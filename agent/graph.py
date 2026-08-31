@@ -35,6 +35,7 @@ from specialists.sequence_modeller import sequence_modeller
 from specialists.multitask_trainer import multitask_trainer
 from specialists.model_swapper import model_swapper
 from specialists.training_optimizer import training_optimizer
+from specialists.feature_engineer import feature_engineer
 from specialists.experiment_judge import experiment_judge
 
 SPECIALIST_FNS = {
@@ -43,6 +44,7 @@ SPECIALIST_FNS = {
     "multitask_trainer": multitask_trainer,
     "model_swapper": model_swapper,
     "training_optimizer": training_optimizer,
+    "feature_engineer": feature_engineer,
 }
 SPECIALISTS = list(SPECIALIST_FNS)
 
