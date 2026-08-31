@@ -108,6 +108,19 @@ class AgentState(TypedDict):
     _phase1_label: str
     _phase2_label: str
 
+    # A specialist that already knows the EXACT edit it wants (e.g.
+    # training_optimizer's fixed hyperparameter menu, model_swapper's k=16->32
+    # option) sets this instead of relying on code_writer's LLM to derive
+    # OLD_CODE/NEW_CODE from free text. code_writer checks this first and, if
+    # present, applies it directly via edit_file with zero LLM involvement --
+    # no translation step, so no chance of the LLM mistranslating or
+    # truncating a change whose exact code was already known. code_writer
+    # clears this back to None unconditionally after every call (whether it
+    # used it or not) so a stale value from one iteration's deterministic
+    # edit can never leak into a later iteration whose specialist didn't set
+    # one -- same stale-data class of bug _raw_scores had.
+    _deterministic_edit: Optional[Dict[str, str]]  # {file, old_code, new_code} or None
+
 
 def initial_state() -> AgentState:
     import time
@@ -147,6 +160,7 @@ def initial_state() -> AgentState:
         _phase2_query="",
         _phase1_label="",
         _phase2_label="",
+        _deterministic_edit=None,
     )
 
 

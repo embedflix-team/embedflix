@@ -5,16 +5,51 @@ import re
 
 client = Anthropic()
 
+# k=16 -> k=32: a pure hyperparameter bump, not a real architecture change,
+# so -- like training_optimizer's menu -- it needs no research and no LLM
+# translation. Verified unique substring in starter-kit/baseline.py (k=16
+# alone also matches FM.__init__'s unused default; qualifying with the rest
+# of run_fm's signature disambiguates to the default that actually matters).
+_HIGHER_K_OLD = "k=16, lr=0.001, epochs=40"
+_HIGHER_K_NEW = "k=32, lr=0.001, epochs=40"
+
+
 def model_swapper(state: dict, tools: dict) -> dict:
     """
-    Proposes upgrading the model architecture.
-    Phase 1: web_search for concept
-    Phase 2: web_search for code blueprint
+    Proposes upgrading the model architecture. _decide_technique tries
+    higher_k first (a deterministic hyperparameter bump, applied directly via
+    _deterministic_edit with zero LLM calls) before falling back to the four
+    genuinely architectural options (deepfm, field_aware_fm, dcn, wider_fm),
+    which do need real LLM-authored code and go through the research +
+    code_writer path below.
     """
 
     history_summary = _summarize_history(state.get("experiment_history", []))
     tried = state.get("tried_approaches", [])
     primary = state.get("current_scores", {}).get("primary") or 0.6016
+
+    key, technique = _decide_technique(tried)
+
+    if key == "higher_k":
+        hypothesis = (
+            "Model swapper: widen FM embeddings from k=16 to k=32 to capture "
+            "more feature interaction capacity (model:higher_k)."
+        )
+        return {
+            **state,
+            "hypothesis": hypothesis,
+            "code_change_instruction": (
+                f"(deterministic) find `{_HIGHER_K_OLD}` and replace with "
+                f"`{_HIGHER_K_NEW}` in starter-kit/baseline.py."
+            ),
+            "reasoning": hypothesis,
+            "tried_approaches": tried + [f"model:{key}"],
+            "_deterministic_edit": {
+                "file": "baseline.py",
+                "old_code": _HIGHER_K_OLD,
+                "new_code": _HIGHER_K_NEW,
+            },
+        }
 
     # PHASE 1 — discover concept
     concept_results = tools["web_search"]({
@@ -22,8 +57,6 @@ def model_swapper(state: dict, tools: dict) -> dict:
         "search_type": "concept",
         "n_results": 3
     })
-
-    technique = _decide_technique(concept_results.get("results", ""), tried)
 
     # PHASE 2 — get code blueprint
     code_results = tools["web_search"]({
@@ -111,9 +144,12 @@ REASONING: [2-3 sentences of ML reasoning for judge logs]
     }
 
 
-def _decide_technique(search_results: str, tried: list) -> str:
+def _decide_technique(tried: list) -> tuple:
+    """Returns (key, description). higher_k is deliberately first -- it's the
+    deterministic option, so it's the natural default before falling back to
+    the four options that need real research + LLM-authored code."""
     candidates = [
-        ("higher_k", "FM higher embedding dimension k=32 k=64"),
+        ("higher_k", "FM higher embedding dimension k=32"),
         ("deepfm", "DeepFM deep component MLP feature interaction"),
         ("field_aware_fm", "Field-aware Factorization Machine FFM"),
         ("dcn", "Deep Cross Network feature crossing"),
@@ -121,8 +157,8 @@ def _decide_technique(search_results: str, tried: list) -> str:
     ]
     for key, technique in candidates:
         if f"model:{key}" not in tried:
-            return technique
-    return "FM higher embedding dimension k=32 k=64"
+            return key, technique
+    return "deepfm", "DeepFM deep component MLP feature interaction"
 
 
 def _summarize_history(history: list) -> str:

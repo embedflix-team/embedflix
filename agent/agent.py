@@ -79,19 +79,55 @@ def baseline_verifier(state: AgentState, tools: dict) -> AgentState:
 
 # ---------------------------------------------------------------------------
 def code_writer(state: AgentState, tools: dict) -> AgentState:
-    """LLM-based editor. Specialists (loss_function_changer, sequence_modeller,
-    etc.) produce a free-form English instruction in
-    state["code_change_instruction"] -- e.g. "Replace the log-loss computation
-    in run_fm with a BPR pairwise loss: sample one negative per positive,
-    compute sigmoid(pos_score - neg_score)..." -- NOT a structured
-    FILE/OLD_CODE/NEW_CODE block.
+    """Applies the current iteration's code change. Two paths:
 
-    This node asks an LLM to turn that instruction + the actual current file
-    contents into an exact, verbatim OLD_CODE/NEW_CODE pair (OLD_CODE must be
-    a literal substring of current_code so tools["edit_file"] can apply it),
-    retries once with corrective feedback if the proposed OLD_CODE doesn't
-    match verbatim, and applies the edit via edit_file.
+    1. DETERMINISTIC (preferred whenever possible): a specialist that already
+       knows the exact edit it wants (training_optimizer's fixed hyperparameter
+       menu, model_swapper's k=16->32 option) sets state["_deterministic_edit"]
+       = {"file", "old_code", "new_code"}. Applied directly via edit_file --
+       zero LLM calls, zero translation risk. This is checked first.
+
+    2. LLM-based (fallback for genuinely novel code -- new loss functions,
+       new model architectures, anything that can't be a fixed template):
+       specialists produce a free-form English instruction in
+       state["code_change_instruction"] -- e.g. "Replace the log-loss
+       computation in run_fm with a BPR pairwise loss..." -- NOT a structured
+       FILE/OLD_CODE/NEW_CODE block. This node asks an LLM to turn that
+       instruction + the actual current file contents into an exact, verbatim
+       OLD_CODE/NEW_CODE pair, retries with corrective feedback if it doesn't
+       match verbatim or doesn't parse, and applies it via edit_file.
     """
+    det = state.get("_deterministic_edit")
+    # Clear unconditionally, whether used or not -- otherwise a stale value
+    # from this iteration could leak into a later iteration whose specialist
+    # doesn't set one at all (same class of bug _raw_scores had).
+    state["_deterministic_edit"] = None
+
+    if det:
+        file_path = det.get("file", "baseline.py")
+        old_code = det.get("old_code", "")
+        new_code = det.get("new_code", "")
+        if file_path in PROTECTED_FILES:
+            state["error_message"] = (
+                f"code_writer: refused deterministic edit to protected file {file_path} "
+                "(evaluate.py must never be modified)"
+            )
+            return state
+        if not old_code or not new_code:
+            state["error_message"] = (
+                "code_writer: _deterministic_edit was set but missing old_code/new_code"
+            )
+            return state
+        result = tools["edit_file"]({
+            "file_path": file_path, "old_code": old_code, "new_code": new_code,
+        })
+        if not result.startswith("SUCCESS"):
+            state["error_message"] = f"code_writer: deterministic edit_file failed -- {result}"
+            return state
+        state["code_diff"] = f"--- {file_path}\n- {old_code}\n+ {new_code}"
+        state["error_message"] = None
+        return state
+
     instruction = (state.get("code_change_instruction") or "").strip()
     # Always read fresh from disk — state current_code can be stale
     try:

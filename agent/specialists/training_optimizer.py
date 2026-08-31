@@ -83,11 +83,13 @@ REASONING: [2-3 sentences of ML reasoning for judge logs -- why this change, giv
     label, old_code, new_code, desc = menu[idx]
 
     hypothesis = f"Training optimizer: {desc} ({label})."
+    # code_change_instruction kept for human-readable logging only -- the
+    # actual edit is applied deterministically via _deterministic_edit below,
+    # which code_writer checks first and applies with zero LLM involvement.
+    # No translation risk: the exact OLD_CODE/NEW_CODE is already known.
     code_instruction = (
-        f"In starter-kit/baseline.py, make EXACTLY this single-line change and "
-        f"nothing else: find the exact substring `{old_code}` and replace it "
-        f"with `{new_code}`. Do not touch any other code, do not add new "
-        f"parameters, do not rewrite any function."
+        f"(deterministic) find the exact substring `{old_code}` and replace "
+        f"it with `{new_code}` in starter-kit/baseline.py."
     )
 
     return {
@@ -96,6 +98,11 @@ REASONING: [2-3 sentences of ML reasoning for judge logs -- why this change, giv
         "code_change_instruction": code_instruction,
         "reasoning": reasoning or hypothesis,
         "tried_approaches": tried + [label],
+        "_deterministic_edit": {
+            "file": "baseline.py",
+            "old_code": old_code,
+            "new_code": new_code,
+        },
     }
 
 
