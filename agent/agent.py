@@ -34,7 +34,16 @@ IMPROVE_THRESHOLD = 0.0001
 # depth (mcp_server.edit_file has no allowlist of its own).
 PROTECTED_FILES = {"evaluate.py"}
 
-CODE_WRITER_MODEL = "claude-haiku-4-5-20251001"
+# code_writer is the single highest-leverage place to spend a bigger model:
+# it is the ONLY specialist-adjacent step that still does free-form
+# OLD_CODE/NEW_CODE translation for genuinely novel LLM-authored code
+# (loss_function_changer, sequence_modeller, multitask_trainer, and
+# model_swapper's 4 architectural candidates all route through it). The
+# deterministic-edit fast path above removes it entirely for
+# training_optimizer + model_swapper's higher_k, so this is now scoped to
+# exactly the cases where a weak model mistranslating/truncating code is the
+# actual root cause of "dead code that never connects to training."
+CODE_WRITER_MODEL = "claude-sonnet-4-5-20250929"
 CODE_WRITER_MAX_RETRIES = 3  # total attempts, not extra retries
 
 
