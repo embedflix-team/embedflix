@@ -24,7 +24,8 @@ from specialists.feature_engineer import CANDIDATES as FEATURE_CANDIDATES
 
 check("feature_engineer is in supervisor.SPECIALISTS", "feature_engineer" in SPECIALISTS)
 
-for tried in ([], ["features:playcount"], ["features:playcount", "features:engagement3"]):
+_L = [c[0] for c in FEATURE_CANDIDATES]
+for tried in ([], _L[:1], _L[:2]):
     state = {"tried_approaches": tried, "current_scores": {"primary": 0.6016},
               "best_scores": {"primary": 0.6016}, "experiment_history": [], "iteration": 1}
     out = supervisor(state, tools={})  # empty tools dict -- forced path must never touch tools
