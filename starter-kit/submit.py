@@ -66,6 +66,10 @@ if __name__ == '__main__':
     ap.add_argument('path')
     ap.add_argument('--data_dir', default='./KuaiRand-Pure/data')
     ap.add_argument('--split', default='test', choices=['valid', 'test'])
+    ap.add_argument('--model', default='fm', choices=['fm', 'lgbm'],
+                    help="--make only: which model produces the scores")
+    ap.add_argument('--seeds', default='',
+                    help="--make --model lgbm only: comma list -> rank-averaged ensemble")
     g = ap.add_mutually_exclusive_group(required=True)
     g.add_argument('--make',  action='store_true', help='用官方 FM baseline 生成示例提交')
     g.add_argument('--check', action='store_true', help='只校验格式与对齐')
@@ -75,7 +79,19 @@ if __name__ == '__main__':
     splits = load(a.data_dir)
     rows = splits[a.split]
 
-    if a.make:
+    if a.make and a.model == 'lgbm':
+        import model_lgbm as L
+        if a.seeds:
+            seeds = tuple(int(s) for s in a.seeds.split(','))
+            r = L.run_ensemble(splits, seeds=seeds, verbose=False)
+            scores = r[f"{a.split}_pred"]
+        else:
+            rr = L.run_lgbm(splits, seed=0, verbose=False)
+            m = rr["model"]
+            scores = m.predict(rr["feats"][a.split][0], num_iteration=m.best_iteration)
+        write_submission(a.path, rows, scores)
+        print(f"已写出 {a.path}：{len(rows):,d} 行（split={a.split}，LightGBM+FM 栈）")
+    elif a.make:
         from baseline import run_fm
         import baseline as B, numpy as np
         enc, dim = encode(splits)

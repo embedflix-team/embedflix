@@ -74,12 +74,24 @@ with open(os.path.join(_KIT, "baseline.py")) as f:
     live_src = f.read()
 official_path = os.path.join(_KIT, "baseline_official.py")
 check("starter-kit/baseline_official.py exists (frozen reference)", os.path.exists(official_path))
+
+
+def _fm_region(src):
+    """The FM class + run_fm -- the part that must never drift from the shipped
+    baseline. baseline.py may grow extra CLI branches (e.g. --model lgbm) below
+    this; baseline_official.py stays frozen."""
+    a = src.index("# ---------------- Factorization Machine")
+    b = src.index("if __name__ ==")
+    return src[a:b].strip()
+
+
 if os.path.exists(official_path):
     with open(official_path) as f:
         frozen_src = f.read()
-    check("baseline.py == baseline_official.py (no drift from the shipped FM)",
-          hashlib.md5(live_src.encode()).hexdigest() == hashlib.md5(frozen_src.encode()).hexdigest(),
-          "baseline.py has diverged from the frozen official copy")
+    check("baseline.py's FM class + run_fm are byte-identical to baseline_official.py",
+          hashlib.md5(_fm_region(live_src).encode()).hexdigest()
+          == hashlib.md5(_fm_region(frozen_src).encode()).hexdigest(),
+          "the FM training code has diverged from the frozen official copy")
 
 check("FM.step uses pointwise log-loss gradient (sigmoid(z) - y)/B",
       "(sigmoid(z) - y) / B" in live_src,

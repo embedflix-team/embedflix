@@ -101,7 +101,7 @@ if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--data_dir', default='./KuaiRand-Pure/data',
                     help='KuaiRand-Pure 解压后的 data 目录')
-    ap.add_argument('--model', default='fm', choices=['pop', 'fm', 'random'])
+    ap.add_argument('--model', default='fm', choices=['pop', 'fm', 'random', 'lgbm'])
     ap.add_argument('--k', type=int, default=16)
     ap.add_argument('--lr', type=float, default=0.001)
     ap.add_argument('--epochs', type=int, default=40)
@@ -110,8 +110,12 @@ if __name__ == '__main__':
     print(f"loading {a.data_dir} ...")
     splits = load(a.data_dir)
     print({k_: len(v) for k_, v in splits.items()}, f"fields={FIELDS}")
+    def _run_lgbm(s):
+        from model_lgbm import run_lgbm          # kept out of the module import
+        return run_lgbm(s, seed=a.seed)           # graph so --model fm has no lightgbm dep
     res = {'pop': run_pop, 'random': lambda s: run_random(s, a.seed),
-           'fm': lambda s: run_fm(s, k=a.k, lr=a.lr, epochs=a.epochs, seed=a.seed)}[a.model](splits)
+           'fm': lambda s: run_fm(s, k=a.k, lr=a.lr, epochs=a.epochs, seed=a.seed),
+           'lgbm': _run_lgbm}[a.model](splits)
     print(f"\n=== {a.model} (seed={a.seed}) ===")
     for sp in ('valid', 'test'):
         r = res[sp]
