@@ -553,6 +553,22 @@ def score_analyst(state: AgentState, tools: dict) -> AgentState:
         and mean_primary > (best_primary if best_primary is not None else -1) + ACCEPT_MARGIN
     )
 
+    # The supervisor forces feature_engineer's whole deterministic menu before
+    # any LLM routing. That is a fixed curriculum sweep, NOT the agent "trying
+    # and failing to improve" -- so a non-improving forced-menu iteration must
+    # not burn the convergence budget, or the run stops right after the feature
+    # phase and never reaches model_swapper / the LightGBM stack.
+    try:
+        from specialists.feature_engineer import CANDIDATES as _FEAT_CANDS
+        _forced_labels = {c[0] for c in _FEAT_CANDS}
+    except Exception:
+        _forced_labels = set()
+    _tried_now = state.get("tried_approaches", [])
+    forced_curriculum_iter = (
+        state.get("next_specialist") == "feature_engineer"
+        and bool(_tried_now) and _tried_now[-1] in _forced_labels
+    )
+
     if improved:
         accepted = {"gauc": mean_gauc, "ndcg5": mean_ndcg, "primary": mean_primary}
         tools["save_checkpoint"]({"iteration": iteration, "primary_score": mean_primary})
@@ -562,7 +578,8 @@ def score_analyst(state: AgentState, tools: dict) -> AgentState:
         state["iterations_without_improvement"] = 0
     else:
         tools["restore_checkpoint"]({"iteration": state["best_iteration"]})
-        state["iterations_without_improvement"] = state.get("iterations_without_improvement", 0) + 1
+        if not forced_curriculum_iter:
+            state["iterations_without_improvement"] = state.get("iterations_without_improvement", 0) + 1
 
     state["_no_op"] = no_op
     specialist = state.get("next_specialist", "unknown")

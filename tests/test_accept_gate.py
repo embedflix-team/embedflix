@@ -98,6 +98,29 @@ _, hD, actD = _run(0.6035, 0.6015, 0.6015, {0: 0.6035, 1: 0.6005, 2: 0.6008})
 check("unconfirmed gain: ran confirmation seeds", hD["confirm_seeds"] == 3)
 check("unconfirmed gain: mean below margin -> rejected", hD["improved"] is False and actD == "restore")
 
+# E: a non-improving FORCED feature_engineer curriculum iteration must NOT burn
+#    the convergence budget (otherwise the run stops before model_swapper).
+_CALLS.clear(); _CANNED = {}
+from specialists.feature_engineer import CANDIDATES as _FC
+sE = _state(0.6013, 0.6015, 0.6015)
+sE["next_specialist"] = "feature_engineer"
+sE["tried_approaches"] = [_FC[0][0]]            # a forced feature candidate just tried
+sE["iterations_without_improvement"] = 3
+outE = agent.score_analyst(sE, TOOLS)
+check("forced feature iter: rejected", outE["experiment_history"][-1]["improved"] is False)
+check("forced feature iter: convergence counter unchanged",
+      outE["iterations_without_improvement"] == 3)
+
+# F: a non-improving iteration AFTER the forced phase DOES count.
+_CALLS.clear(); _CANNED = {}
+sF = _state(0.6030, 0.6045, 0.6033)
+sF["next_specialist"] = "loss_function_changer"
+sF["tried_approaches"] = [c[0] for c in _FC] + ["model:lgbm", "loss:bpr"]
+sF["iterations_without_improvement"] = 2
+outF = agent.score_analyst(sF, TOOLS)
+check("post-curriculum iter: convergence counter increments",
+      outF["iterations_without_improvement"] == 3)
+
 failed = [r for r in results if not r[1]]
 print(f"\n{len(results) - len(failed)}/{len(results)} passed")
 sys.exit(1 if failed else 0)
