@@ -121,6 +121,20 @@ class AgentState(TypedDict):
     # one -- same stale-data class of bug _raw_scores had.
     _deterministic_edit: Optional[Dict[str, str]]  # {file, old_code, new_code} or None
 
+    # Phase 0 (measurement integrity):
+    #  _best_seed0_primary -- the SEED-0 valid primary of whatever code is
+    #    currently checkpointed as best. score_analyst's no-op detector compares
+    #    a fresh seed-0 run against this exact value (bit-identical => dead edit).
+    #    Anchored to seed 0 specifically because best_scores["primary"] becomes a
+    #    multi-seed MEAN after a confirmed accept and would no longer match.
+    #  _last_call_tokens -- a specialist's own LLM-call token count (in+out) for
+    #    this iteration. Specialists can't touch total_tokens (whitelist), so
+    #    code_writer folds this in and zeroes it.
+    #  _no_op -- set by score_analyst, read by log_and_track for the run-log note.
+    _best_seed0_primary: Optional[float]
+    _last_call_tokens: int
+    _no_op: bool
+
 
 def initial_state() -> AgentState:
     import time
@@ -161,6 +175,9 @@ def initial_state() -> AgentState:
         _phase1_label="",
         _phase2_label="",
         _deterministic_edit=None,
+        _best_seed0_primary=None,
+        _last_call_tokens=0,
+        _no_op=False,
     )
 
 

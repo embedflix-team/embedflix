@@ -95,6 +95,10 @@ REASONING: [one sentence summary for the run log]
         "learning": parsed["learning"],
         "next_priority": parsed["next_priority"],
         "reasoning": parsed["reasoning"],
+        # judge bypasses _extract_specialist_output (returns full **state), so
+        # it accumulates its own reasoning-call tokens directly.
+        "total_tokens": state.get("total_tokens", 0)
+                        + response.usage.input_tokens + response.usage.output_tokens,
     }
 
 

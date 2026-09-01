@@ -282,9 +282,16 @@ class EmbedflixTracer(BaseCallbackHandler):
         })
         _print(f"🙋 HUMAN INTERVENTION #{_run_stats['human_interventions']}: {reason}")
 
-    def write_summary(self, final_iteration: int, best_primary: float):
+    def write_summary(self, final_iteration: int, best_primary: float,
+                      total_tokens: int = None, baseline_primary: float = 0.6016):
         elapsed = _elapsed()
-        total_tokens = _run_stats["total_tokens_in"] + _run_stats["total_tokens_out"]
+        # on_llm_start/on_llm_end never fire for this codebase (every specialist
+        # + code_writer call the raw anthropic SDK, bypassing LangChain's
+        # callback system), so _run_stats' token counters stay 0. main.py now
+        # passes the real figure from state["total_tokens"], which agent.py
+        # accumulates across code_writer + every specialist call.
+        if total_tokens is None:
+            total_tokens = _run_stats["total_tokens_in"] + _run_stats["total_tokens_out"]
         avg_timings = {k: round(sum(v)/len(v), 2)
                        for k, v in _run_stats["node_timings"].items()}
 
@@ -295,13 +302,10 @@ class EmbedflixTracer(BaseCallbackHandler):
 Trace ID:              {_trace_id[:16]}...
 Total iterations:      {final_iteration}
 Wall clock:            {elapsed:.1f}s  ({elapsed/60:.1f} min)
-Best primary score:    {best_primary:.4f}  (Δ {best_primary-0.6016:+.4f} vs baseline)
+Best primary score:    {best_primary:.4f}  (Δ {best_primary-baseline_primary:+.4f} vs official baseline {baseline_primary:.4f})
 
 TOKEN USAGE
-  Input tokens:        {_run_stats['total_tokens_in']}
-  Output tokens:       {_run_stats['total_tokens_out']}
-  Total tokens:        {total_tokens}
-  Total API calls:     {_run_stats['total_api_calls']}
+  Total tokens:        {total_tokens}   (input + output, all LLM calls: code_writer + every specialist + supervisor + judge)
 
 AUTONOMY
   Human interventions: {_run_stats['human_interventions']}

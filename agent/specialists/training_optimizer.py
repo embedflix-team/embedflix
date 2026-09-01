@@ -98,6 +98,7 @@ REASONING: [2-3 sentences of ML reasoning for judge logs -- why this change, giv
         "code_change_instruction": code_instruction,
         "reasoning": reasoning or hypothesis,
         "tried_approaches": tried + [label],
+        "_last_call_tokens": response.usage.input_tokens + response.usage.output_tokens,
         "_deterministic_edit": {
             "file": "baseline.py",
             "old_code": old_code,

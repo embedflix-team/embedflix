@@ -58,7 +58,7 @@ def _extract_specialist_output(result: dict) -> dict:
         "tried_approaches", "next_specialist", "routing_reason",
         "strategy", "verdict", "analysis", "learning", "next_priority",
         "_phase1_results", "_phase1_query", "_phase2_results", "_phase2_query",
-        "_phase1_label", "_phase2_label", "_deterministic_edit",
+        "_phase1_label", "_phase2_label", "_deterministic_edit", "_last_call_tokens",
     ]
     return {k: result[k] for k in keys if k in result}
 

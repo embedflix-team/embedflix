@@ -58,6 +58,16 @@
         "test_nDCG@5": 0.0008,
         "test_primary": 0.0008
       },
+      "reproduced": {
+        "note": "Embedflix Phase 0 (2026-09-01): restored the shipped log-loss FM from commit e634efb (starter-kit/baseline.py had held an unvalidated agent-authored BPR loss since 36443bc) and re-ran it. Matches the published valid primary exactly. valid std is what the two-stage accept gate is calibrated against.",
+        "valid_mean_over_seeds_0_4": {
+          "GAUC": 0.6674,
+          "nDCG@5": 0.5357,
+          "primary": 0.6016
+        },
+        "valid_per_seed_primary": [0.6015, 0.6018, 0.6011, 0.6015, 0.602],
+        "valid_std_primary": 0.0003
+      },
       "config": {
         "model": "FM",
         "k": 16,

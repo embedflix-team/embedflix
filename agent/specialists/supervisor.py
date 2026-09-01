@@ -167,7 +167,11 @@ STRATEGY: [one sentence — overall strategy for this phase of the run]
         "next_specialist": parsed["route_to"],
         "routing_reason": parsed["routing_reason"],
         "strategy": parsed["strategy"],
-        "reasoning": f"Supervisor routed to {parsed['route_to']}: {parsed['routing_reason']}"
+        "reasoning": f"Supervisor routed to {parsed['route_to']}: {parsed['routing_reason']}",
+        # supervisor bypasses _extract_specialist_output (returns full **state),
+        # so it accumulates its own routing-call tokens directly.
+        "total_tokens": state.get("total_tokens", 0)
+                        + response.usage.input_tokens + response.usage.output_tokens,
     }
 
 

@@ -50,6 +50,7 @@ def run_agent():
     tracer.write_summary(
         final_iteration=result["iteration"],
         best_primary=result["best_scores"].get("primary", 0.0),
+        total_tokens=result.get("total_tokens", 0),
     )
     return result
 

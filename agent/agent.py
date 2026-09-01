@@ -28,11 +28,21 @@ N_CONVERGE = 5
 MAX_ITERATIONS = 50
 MAX_WALL_HOURS = 6
 
-IMPROVE_THRESHOLD = 0.0001
+# Two-stage accept gate (Phase 0.5). The old single IMPROVE_THRESHOLD = 0.0001
+# was 8x BELOW the official baseline's own 5-seed std (~0.0008), so it accepted
+# pure seed noise as "improvement". Now: screen at seed 0, and only if the
+# seed-0 gain clears SEED0_SCREEN_DELTA do we re-run at CONFIRM_SEEDS and
+# require the multi-seed MEAN to beat best by ACCEPT_MARGIN.
+SEED0_SCREEN_DELTA = 0.001          # seed-0 gain needed to bother confirming
+CONFIRM_SEEDS = (1, 2)             # extra seeds averaged in for a real accept
+ACCEPT_MARGIN = EPSILON / 2        # 0.001 -- multi-seed mean must beat best by this
+NO_OP_EPS = 1e-9                   # |Δ| below this == bit-identical == dead edit
 
 # Files a specialist is never allowed to touch, enforced here as defense in
-# depth (mcp_server.edit_file has no allowlist of its own).
-PROTECTED_FILES = {"evaluate.py"}
+# depth (mcp_server.edit_file has no allowlist of its own). baseline_official.py
+# is the frozen reference copy of the shipped FM; baseline_scores.json is the
+# organizer + measured reference numbers.
+PROTECTED_FILES = {"evaluate.py", "baseline_official.py", "baseline_scores.json"}
 
 # code_writer is the single highest-leverage place to spend a bigger model:
 # it is the ONLY specialist-adjacent step that still does free-form
@@ -72,6 +82,9 @@ def baseline_verifier(state: AgentState, tools: dict) -> AgentState:
     state["current_scores"] = scores
     state["best_scores"] = scores
     state["best_iteration"] = 0
+    # seed-0 anchor for score_analyst's no-op detector: this is the score of
+    # whatever code is on disk right now (the restored official baseline).
+    state["_best_seed0_primary"] = raw_scores["primary"]
     state["experiment_history"] = [{
         "iteration": 0, "specialist": "baseline", "hypothesis": "baseline (unmodified FM)",
         "gauc": scores["gauc"], "ndcg5": scores["ndcg5"], "primary": scores["primary"],
@@ -106,6 +119,14 @@ def code_writer(state: AgentState, tools: dict) -> AgentState:
        OLD_CODE/NEW_CODE pair, retries with corrective feedback if it doesn't
        match verbatim or doesn't parse, and applies it via edit_file.
     """
+    # Phase 0.7: fold in the specialist's own LLM-call tokens. Specialists
+    # can't write total_tokens directly (not in _extract_specialist_output's
+    # whitelist), so they hand the per-call count back as _last_call_tokens
+    # and we accumulate it here, on the node that always runs right after
+    # every specialist. Feasibility scoring (15%) needs a real token number.
+    state["total_tokens"] = state.get("total_tokens", 0) + int(state.get("_last_call_tokens", 0) or 0)
+    state["_last_call_tokens"] = 0
+
     det = state.get("_deterministic_edit")
     # Clear unconditionally, whether used or not -- otherwise a stale value
     # from this iteration could leak into a later iteration whose specialist
@@ -474,22 +495,76 @@ def score_analyst(state: AgentState, tools: dict) -> AgentState:
     iteration = state["iteration"] + 1
     state["iteration"] = iteration
 
-    improved = (scores.get("primary") or -1) > (best.get("primary") or -1) + IMPROVE_THRESHOLD
+    seed0_primary = scores.get("primary")
+    best_primary = best.get("primary")
+    base_seed0 = state.get("_best_seed0_primary")
+
+    # --- Phase 0.6: no-op detection ------------------------------------------
+    # Training is seed-deterministic, so an edit that does not change model
+    # behaviour reproduces the pre-edit score bit-for-bit. Before this
+    # iteration's edit, disk held the best checkpoint, whose SEED-0 primary is
+    # _best_seed0_primary -- compare against that (not best_primary, which may
+    # be a multi-seed mean after a confirmed accept).
+    no_op = (
+        seed0_primary is not None and base_seed0 is not None
+        and abs(seed0_primary - base_seed0) < NO_OP_EPS
+    )
+
+    # --- Phase 0.5: two-stage accept gate ----------------------------------
+    seed_primaries = [seed0_primary] if seed0_primary is not None else []
+    seed_gaucs = [scores.get("gauc")] if scores.get("gauc") is not None else []
+    seed_ndcgs = [scores.get("ndcg5")] if scores.get("ndcg5") is not None else []
+    screen_delta = (seed0_primary or -1) - (best_primary or -1)
+    confirmed = False
+
+    if (not no_op) and screen_delta > SEED0_SCREEN_DELTA:
+        for sd in CONFIRM_SEEDS:
+            out = tools["run_pipeline"]({"extra_args": f"--seed {sd}"})
+            rs = tools["parse_scores"]({"pipeline_output": out})
+            if rs.get("primary") is not None:
+                seed_primaries.append(rs["primary"])
+                if rs.get("GAUC") is not None:
+                    seed_gaucs.append(rs["GAUC"])
+                if rs.get("nDCG@5") is not None:
+                    seed_ndcgs.append(rs["nDCG@5"])
+        confirmed = len(seed_primaries) >= 2
+
+    mean_primary = (sum(seed_primaries) / len(seed_primaries)) if seed_primaries else None
+    mean_gauc = (sum(seed_gaucs) / len(seed_gaucs)) if seed_gaucs else scores.get("gauc")
+    mean_ndcg = (sum(seed_ndcgs) / len(seed_ndcgs)) if seed_ndcgs else scores.get("ndcg5")
+
+    # A non-confirmed edit can never be accepted: entering stage 2 requires
+    # screen_delta > SEED0_SCREEN_DELTA, so mean_primary (== seed0_primary when
+    # not confirmed) can't clear best + ACCEPT_MARGIN.
+    improved = (
+        (not no_op)
+        and mean_primary is not None
+        and mean_primary > (best_primary if best_primary is not None else -1) + ACCEPT_MARGIN
+    )
 
     if improved:
-        tools["save_checkpoint"]({"iteration": iteration, "primary_score": scores.get("primary", 0.0)})
-        state["best_scores"] = scores
+        accepted = {"gauc": mean_gauc, "ndcg5": mean_ndcg, "primary": mean_primary}
+        tools["save_checkpoint"]({"iteration": iteration, "primary_score": mean_primary})
+        state["best_scores"] = accepted
         state["best_iteration"] = iteration
+        state["_best_seed0_primary"] = seed0_primary   # anchor future no-op checks to seed 0
         state["iterations_without_improvement"] = 0
     else:
         tools["restore_checkpoint"]({"iteration": state["best_iteration"]})
         state["iterations_without_improvement"] = state.get("iterations_without_improvement", 0) + 1
 
+    state["_no_op"] = no_op
     specialist = state.get("next_specialist", "unknown")
     state["experiment_history"] = state.get("experiment_history", []) + [{
         "iteration": iteration, "specialist": specialist, "hypothesis": state.get("hypothesis", ""),
-        "gauc": scores.get("gauc"), "ndcg5": scores.get("ndcg5"), "primary": scores.get("primary"),
+        "gauc": scores.get("gauc"), "ndcg5": scores.get("ndcg5"), "primary": seed0_primary,
         "improved": improved,
+        "no_op": no_op,
+        "delta_vs_best": None if (seed0_primary is None or best_primary is None)
+                         else round(seed0_primary - best_primary, 5),
+        "confirm_seeds": len(seed_primaries) if confirmed else 1,
+        "mean_primary": round(mean_primary, 5) if confirmed and mean_primary is not None else None,
+        "note": "edit did not change model behaviour (no-op)" if no_op else "",
     }]
     state["tried_approaches"] = state.get("tried_approaches", [])  # specialists append their own label already
     # Refresh AFTER the accept/reject restore above, so this always reflects
@@ -528,6 +603,12 @@ def log_and_track(state: AgentState, tools: dict) -> AgentState:
     if extra_bits:
         logged_hypothesis = logged_hypothesis + "\n\n" + "\n".join(extra_bits)
 
+    recovery_note = state.get("recovery_action", "")
+    if state.get("_no_op"):
+        recovery_note = ("[NO-OP] edit did not change model behaviour -- seed-0 "
+                         "primary identical to pre-edit checkpoint. "
+                         + recovery_note).strip()
+
     tools["log_iteration"]({
     "iteration": state["iteration"],
     "hypothesis": logged_hypothesis,
@@ -536,7 +617,7 @@ def log_and_track(state: AgentState, tools: dict) -> AgentState:
     "ndcg": raw_scores.get("nDCG@5") or raw_scores.get("ndcg5"),
     "primary": raw_scores.get("primary"),
     "error": state.get("error_message") or "",
-    "recovery": state.get("recovery_action", ""),
+    "recovery": recovery_note,
     })
     wall = time.time() - state["run_start_time"]
     tools["track_resources"]({
@@ -550,6 +631,7 @@ def log_and_track(state: AgentState, tools: dict) -> AgentState:
     state["analysis"] = ""
     state["learning"] = ""
     state["next_priority"] = ""
+    state["_no_op"] = False
     return state
 
 

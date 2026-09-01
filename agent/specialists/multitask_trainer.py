@@ -82,7 +82,8 @@ REASONING: [2-3 sentences of ML reasoning for judge logs]
         "hypothesis": parsed["hypothesis"],
         "code_change_instruction": parsed["code_instruction"],
         "reasoning": parsed["reasoning"],
-        "tried_approaches": tried + [f"multitask:{parsed['multitask_choice']}"]
+        "tried_approaches": tried + [f"multitask:{parsed['multitask_choice']}"],
+        "_last_call_tokens": response.usage.input_tokens + response.usage.output_tokens,
     }
 
 
