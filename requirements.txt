@@ -3,7 +3,8 @@
 # agent/graph.py and agent/tools_adapter.py actually import) -- a fresh
 # `pip install -r requirements.txt` would hit ModuleNotFoundError immediately.
 # tavily-python added (2026-08-28) for web_search. chromadb added (2026-08-29)
-# for the read_papers knowledge-base tool.
+# for the read_papers knowledge-base tool. lightgbm added (2026-09-01) for the
+# LightGBM LambdaRank re-ranker (starter-kit/model_lgbm.py, `--model lgbm`).
 #
 # This file is a full `pip freeze` from a clean venv: her original pinned
 # packages installed first, then `pip install langgraph fastmcp
@@ -88,6 +89,7 @@ langgraph-checkpoint==4.2.0
 langgraph-prebuilt==1.1.0
 langgraph-sdk==0.4.4
 langsmith==0.11.2
+lightgbm==4.7.0
 markdown-it-py==4.2.0
 mcp==1.29.1
 mdurl==0.1.2
