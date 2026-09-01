@@ -37,45 +37,29 @@ untried = [l for l in all_labels if l not in all_labels]  # simulate "all tried"
 check("guard condition is empty once all candidates are in tried_approaches", untried == [])
 
 # ---------------------------------------------------------------------------
-# 2. agent.py's _check_feature_phase_gate -- pure function, no tools/LLM at all
+# 2. agent.py's _check_feature_phase_gate -- DISABLED 2026-09-01. It used to
+#    stop the whole run if no feature_engineer candidate improved; Phase 1 +
+#    Phase 3 showed the LightGBM stack (reachable AFTER the feature menu, via
+#    model_swapper's model:lgbm) does beat the baseline, so stopping at the
+#    feature phase would skip the thing that works. It must now ALWAYS return
+#    None regardless of history.
 # ---------------------------------------------------------------------------
 from agent import _check_feature_phase_gate
 
 feature_labels = [c[0] for c in FEATURE_CANDIDATES]
 
-state_partial = {"tried_approaches": ["features:playcount"], "experiment_history": []}
-check("gate returns None when menu not exhausted", _check_feature_phase_gate(state_partial) is None)
-
-state_none_improved = {
-    "tried_approaches": feature_labels,
-    "experiment_history": [
-        {"iteration": i + 1, "specialist": "feature_engineer", "improved": False}
-        for i in range(len(feature_labels))
-    ],
-}
-gate_result = _check_feature_phase_gate(state_none_improved)
-check("gate returns a stop reason when all candidates tried and none improved",
-      gate_result is not None, gate_result)
-
-state_one_improved = {
-    "tried_approaches": feature_labels,
-    "experiment_history": [
-        {"iteration": i + 1, "specialist": "feature_engineer", "improved": (i == 1)}
-        for i in range(len(feature_labels))
-    ],
-}
-check("gate returns None when at least one candidate improved",
-      _check_feature_phase_gate(state_one_improved) is None)
-
-state_mixed = {
-    "tried_approaches": feature_labels + ["training:l2"],
-    "experiment_history": [
-        {"iteration": i + 1, "specialist": "feature_engineer", "improved": False}
-        for i in range(len(feature_labels))
-    ] + [{"iteration": 99, "specialist": "training_optimizer", "improved": True}],
-}
-check("gate ignores non-feature_engineer history entries when deciding",
-      _check_feature_phase_gate(state_mixed) is not None)
+no_improve_hist = [{"iteration": i + 1, "specialist": "feature_engineer", "improved": False}
+                   for i in range(len(feature_labels))]
+for label, st in [
+    ("menu not exhausted", {"tried_approaches": feature_labels[:1], "experiment_history": []}),
+    ("menu exhausted, none improved", {"tried_approaches": feature_labels,
+                                       "experiment_history": no_improve_hist}),
+    ("menu exhausted, one improved", {"tried_approaches": feature_labels,
+                                      "experiment_history": [dict(h, improved=(i == 1))
+                                                             for i, h in enumerate(no_improve_hist)]}),
+]:
+    check(f"feature-phase gate is a no-op ({label})",
+          _check_feature_phase_gate(st) is None)
 
 print("\n" + "="*70)
 n_fail = sum(1 for _, ok, _ in results if not ok)

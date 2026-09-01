@@ -9,8 +9,10 @@ from type annotations and docstrings, validates inputs, and handles transport.
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
+import sys
 import time
 from typing import Annotated
 from fastmcp import FastMCP
@@ -30,24 +32,27 @@ STARTER_KIT = os.path.join(_HERE, "../starter-kit")
 CHECKPOINTS = os.path.join(_HERE, "../checkpoints")
 LOG_PATH = os.path.join(_HERE, "../run_log.jsonl")
 RESOURCE_LOG = os.path.join(_HERE, "../resource_log.json")
-# ── Tool 1: Run the FM pipeline ───────────────────────────────────────────────
+# ── Tool 1: Run the pipeline ─────────────────────────────────────────────────
 @mcp.tool
 def run_pipeline(
-    extra_args: Annotated[str, "Extra CLI flags passed to baseline.py (e.g. '--model fm --seed 1')"] = "",
+    extra_args: Annotated[str, "Extra CLI flags for baseline.py, e.g. '--seed 1'"] = "",
+    model: Annotated[str, "Force a model: 'fm' or 'lgbm'. Empty -> use baseline.py's own --model default (which model_swapper's 'model:lgbm' edit can flip)."] = "",
 ) -> str:
     """
-    Runs baseline.py --model fm in the starter-kit directory.
-    Returns the combined stdout + stderr so the agent can parse scores
-    and errors. Timeout is 300 s (covers a full FM training run).
+    Runs baseline.py in the starter-kit directory and returns combined
+    stdout+stderr so the agent can parse scores / errors.
+
+    Uses sys.executable (the interpreter running the agent), NOT bare `python3`
+    -- the LightGBM stack needs the venv where lightgbm is installed, and the
+    system python3 does not have it. argv is a list (no shell), so `extra_args`
+    can't inject shell commands.
     """
-    cmd = f"python3 baseline.py --model fm {extra_args}".strip()
+    argv = [sys.executable, "baseline.py"]
+    if model:
+        argv += ["--model", model]
+    argv += shlex.split(extra_args)
     result = subprocess.run(
-        cmd,
-        shell=True,
-        capture_output=True,
-        text=True,
-        timeout=600,
-        cwd=STARTER_KIT,
+        argv, capture_output=True, text=True, timeout=1800, cwd=STARTER_KIT,
     )
     return result.stdout + result.stderr
 # ── Tool 2: Read a file ───────────────────────────────────────────────────────

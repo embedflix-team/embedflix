@@ -3,6 +3,7 @@ from anthropic import Anthropic
 import os
 
 from specialists.feature_engineer import CANDIDATES as FEATURE_CANDIDATES
+from specialists._insight import WITHIN_USER_INVARIANCE, STACK_STATUS
 
 client = Anthropic()
 
@@ -57,9 +58,13 @@ def supervisor(state: dict, tools: dict) -> dict:
     best = state.get("best_scores", {}).get("primary") or 0.6016
     iteration = state.get("iteration", 1)
 
-    prompt = f"""You are the supervisor of an autonomous ML research agent improving 
-a KuaiRand-Pure video recommender system. Your job is to decide which 
+    prompt = f"""You are the supervisor of an autonomous ML research agent improving
+a KuaiRand-Pure video recommender system. Your job is to decide which
 specialist agent to call next to maximally improve the ranking score.
+
+{WITHIN_USER_INVARIANCE}
+
+{STACK_STATUS}
 
 CURRENT STATE:
 - Iteration: {iteration} / 50 max
@@ -107,38 +112,44 @@ DATASET CONTEXT (use this to guide specialist selection):
   legitimate technique — that's not affected by this rule.)
 
 AVAILABLE SPECIALISTS:
-1. loss_function_changer — baseline already trains with BPR pairwise loss;
-   this switches to softmax/focal/warp/pointwise instead
+1. loss_function_changer — baseline trains with POINTWISE LOG-LOSS (the shipped
+   official FM, restored in Phase 0); this swaps in softmax/focal/warp/BPR
    Best when: model trains well but ranking quality is poor (low nDCG vs GAUC)
-   
-2. sequence_modeller — adds user history / recent watch features  
-   Best when: model ignores temporal patterns, users have rich history
-   
+
+2. sequence_modeller — adds user history / recent watch features
+   Best when: model ignores temporal patterns (it does — highest-value
+   untried lever, since session state is signal the FM+IDs cannot encode)
+
 3. multitask_trainer — adds auxiliary tasks (click, like, play_time)
    Best when: long_view signal is sparse, other signals are abundant
-   
-4. model_swapper — upgrades FM to DeepFM/DCN/higher-k
-   Best when: feature interactions are not well captured, score plateaus
-   
+
+4. model_swapper — deterministic 'model:lgbm' switches the pipeline to the
+   LightGBM LambdaRank + FM stack (the CURRENT BEST, +0.0027 test); also
+   'model:higher_k' (k=16->32) and LLM-authored DeepFM/DCN/FFM
+   Best when: FM feature/loss tweaks have plateaued (they have) — route here
+
 5. training_optimizer — tunes lr, batch size, regularization, patience
    Best when: training is unstable, overfitting, or converging too early
 
-6. feature_engineer — adds bucketed numeric video engagement stats
-   (play_cnt/like_cnt/show_cnt/etc. from video_features_statistic_pure.csv,
-   never used before) as new FM field domains
-   Best when: you want to revisit the feature menu after its forced first
-   pass -- note its 3-candidate menu already runs automatically before your
-   first routing decision each run, so you'll rarely need to pick it
-   yourself unless you want to re-try a candidate
+6. feature_engineer — 5-candidate menu of leakage-free ITEM-SIDE features
+   (train-only target encodings of video/author long_view rate, video-stat
+   ratios, the unused music_id/tag). Its menu runs automatically before your
+   first routing decision each run. Phase 1 result: all 5 landed within seed
+   noise on the plain FM — only re-pick it to feed the lgbm stack.
 
 ROUTING RULES:
 - Never repeat a specialist that already failed to improve the score
+- A history entry marked "no_op" means the edit did not change model
+  behaviour at all -- that is NOT evidence the technique failed; the edit
+  just never landed. Treat the technique as still untried.
 - If score improved last iteration, try building on that approach first
 - If score dropped last iteration, try a different specialist
 - Check ALREADY TRIED / FULL EXPERIMENT HISTORY above before ruling anything
   out -- do not assume a specialist has been tried unless it actually
   appears there for this run
-- If stuck for 2+ iterations, escalate to model_swapper
+- The plain-FM feature/loss levers plateau near 0.602. Once feature_engineer's
+  menu has run, prefer model_swapper's model:lgbm and sequence_modeller --
+  they add signal the FM+IDs cannot already encode.
 - Always explain your routing decision clearly for the judge logs
 
 Decide which specialist to call next and why.
@@ -150,7 +161,7 @@ STRATEGY: [one sentence — overall strategy for this phase of the run]
 """
 
     response = client.messages.create(
-        model="claude-haiku-4-5-20251001",
+        model="claude-haiku-4-5",
         max_tokens=800,
         messages=[{"role": "user", "content": prompt}]
     )

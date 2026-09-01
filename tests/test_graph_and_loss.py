@@ -41,18 +41,20 @@ try:
 except SyntaxError as e:
     check("loss_function_changer.py parses", False, str(e))
 
-check("stale 'log-loss' baseline premise is gone",
-      "trained with log-loss" not in src)
-check("corrected premise mentions BPR is already the baseline",
-      "already trained with BPR" in src)
+# Phase 0 restored the shipped POINTWISE LOG-LOSS FM, so the prompt premise
+# flipped back: baseline is log-loss again, and BPR is a valid move onto it.
+check("premise says the baseline is pointwise log-loss (Phase 0 restored it)",
+      "POINTWISE LOG-LOSS" in src and "(sigmoid(z) - y) / B" in src)
+check("premise no longer claims BPR is already the baseline",
+      "already trained with BPR" not in src)
+check("within-user invariance insight is injected",
+      "WITHIN_USER_INVARIANCE" in src)
 check("single-edit-location constraint text present (mirrors model_swapper's fix)",
       "CRITICAL EXECUTION CONSTRAINT" in src and "ONE find-and-replace edit" in src)
 check("instruction to edit inside FM.step() in place present",
       "INSIDE FM.step()" in src)
-check("'bpr' removed from the LOSS_CHOICE menu (baseline already IS bpr)",
-      "LOSS_CHOICE: [bpr | softmax | focal | warp]" not in src)
-check("_decide_technique candidates no longer include a redundant 'bpr' option",
-      '("bpr", "Bayesian Personalised Ranking BPR loss")' not in src)
+check("'bpr' is back in the LOSS_CHOICE menu (baseline is log-loss again)",
+      "LOSS_CHOICE: [bpr | softmax | focal | warp]" in src)
 
 # ---------------------------------------------------------------------------
 # supervisor.py -- static check that the stale hardcoded ban is gone

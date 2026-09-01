@@ -3,6 +3,8 @@ from anthropic import Anthropic
 import os
 import re
 
+from specialists._insight import WITHIN_USER_INVARIANCE
+
 client = Anthropic()
 
 def multitask_trainer(state: dict, tools: dict) -> dict:
@@ -33,6 +35,8 @@ def multitask_trainer(state: dict, tools: dict) -> dict:
     })
 
     prompt = f"""You are an ML expert improving a KuaiRand-Pure recommender system.
+
+{WITHIN_USER_INVARIANCE}
 
 CURRENT SITUATION:
 - Baseline: FM trained only on long_view label (binary)
@@ -69,7 +73,7 @@ REASONING: [2-3 sentences of ML reasoning for judge logs]
 """
 
     response = client.messages.create(
-        model="claude-haiku-4-5-20251001",
+        model="claude-haiku-4-5",
         max_tokens=1000,
         messages=[{"role": "user", "content": prompt}]
     )

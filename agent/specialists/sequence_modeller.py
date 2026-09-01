@@ -3,6 +3,8 @@ from anthropic import Anthropic
 import os
 import re
 
+from specialists._insight import WITHIN_USER_INVARIANCE
+
 client = Anthropic()
 
 def sequence_modeller(state: dict, tools: dict) -> dict:
@@ -34,8 +36,12 @@ def sequence_modeller(state: dict, tools: dict) -> dict:
 
     prompt = f"""You are an ML expert improving a KuaiRand-Pure recommender system.
 
+{WITHIN_USER_INVARIANCE}
+
 CURRENT SITUATION:
-- Baseline: FM with 5 static features only (user_id, video_id, author_id, music_id, tag)
+- Baseline: FM with 5 static categorical fields only:
+  user_id, video_id, author_id, tab, dur_bucket  (NOT music_id/tag -- those
+  exist in video_features_basic_pure.csv but the baseline never uses them)
 - Current primary score: {primary:.4f} (baseline to beat: 0.6016)
 - Metric: primary = mean(GAUC, nDCG@5)
 - Iteration: {state.get("iteration", 1)}
@@ -72,7 +78,7 @@ REASONING: [2-3 sentences of ML reasoning for judge logs]
 """
 
     response = client.messages.create(
-        model="claude-haiku-4-5-20251001",
+        model="claude-haiku-4-5",
         max_tokens=1000,
         messages=[{"role": "user", "content": prompt}]
     )

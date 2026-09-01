@@ -3,6 +3,8 @@ from anthropic import Anthropic
 import os
 import re
 
+from specialists._insight import WITHIN_USER_INVARIANCE
+
 client = Anthropic(
     default_headers={
         "anthropic-workspace-id": os.environ.get("ANTHROPIC_WORKSPACE_ID", "")
@@ -39,34 +41,36 @@ def loss_function_changer(state: dict, tools: dict) -> dict:
 
     prompt = f"""You are an ML expert improving a KuaiRand-Pure recommender system.
 
+{WITHIN_USER_INVARIANCE}
+
 CURRENT SITUATION:
-- Baseline: Factorization Machine already trained with BPR (Bayesian Personalized
-  Ranking) pairwise loss -- this is NOT the original log-loss/binary-cross-entropy
-  baseline anymore, a prior iteration already moved it to BPR. FM.step()'s entire
-  loss computation is this one hardcoded BPR block; there is no dispatch on a
-  loss-function choice anywhere in FM.__init__, FM.step, or run_fm.
+- Baseline: Factorization Machine trained with POINTWISE LOG-LOSS / binary
+  cross-entropy -- `g = (sigmoid(z) - y) / B`. This is the shipped official
+  baseline (Phase 0 restored it; an earlier unvalidated BPR edit was reverted).
+  FM.step()'s entire loss computation is this one block; there is no dispatch
+  on a loss-function choice anywhere in FM.__init__, FM.step, or run_fm.
 - Current primary score: {primary:.4f} (baseline to beat: 0.6016)
 - Metric: primary = mean(GAUC, nDCG@5) — both are RANKING metrics
 - Iteration: {state.get("iteration", 1)}
 
-KEY INSIGHT: BPR already trains for pairwise ranking, which is closer to the
-ranking metrics than log-loss was, but it makes a specific assumption (uniform
-random negative sampling within the batch) that alternatives like softmax
-listwise loss or WARP's hard-negative mining can improve on. Since there was
-never an original log-loss path to compare against here, motivate your choice
-against what BPR does today, not against log-loss.
+KEY INSIGHT: log-loss trains for calibrated click probability, but we are
+scored on WITHIN-USER ranking. A pairwise (BPR) or listwise (softmax) loss
+optimises relative order directly. BPR must sample its negative from the SAME
+USER's impressions to match the metric -- a cross-user pair teaches nothing the
+metric rewards. Note: pure loss changes on this FM plateau near 0.602 (the FM
+already encodes the ID-level signal); a listwise loss is still worth one try.
 
 CRITICAL EXECUTION CONSTRAINT: code_writer applies your instruction as exactly
 ONE find-and-replace edit at ONE location in the file. It CANNOT make two edits
 in two different places (e.g. define a new loss function elsewhere in the file
 AND separately change what FM.step() calls) -- only the first part would ever
-land, and FM.step()'s existing hardcoded BPR computation would keep running
+land, and FM.step()'s existing hardcoded log-loss computation would keep running
 completely unchanged, silently. The resulting score would look like a real
 experiment but would reflect nothing about your proposed loss -- this exact
 failure mode has happened before with a different specialist's edits.
 
 Because of that, your CODE_INSTRUCTION must describe a change made ENTIRELY
-INSIDE FM.step()'s existing body, replacing its current BPR loss computation
+INSIDE FM.step()'s existing body, replacing its current log-loss computation
 in place with your proposed alternative -- one single contiguous edit, not a
 new function defined elsewhere plus a separate call-site change. Never propose
 a new loss function with a separate, disconnected wiring instruction.
@@ -87,14 +91,14 @@ Adapt the code blueprint to fit the existing FM baseline structure.
 Do not invent math — adapt what you found.
 
 Respond in this exact format:
-HYPOTHESIS: [one sentence — what you're trying and why, relative to the current BPR loss]
-LOSS_CHOICE: [softmax | focal | warp | pointwise]
-CODE_INSTRUCTION: [exact instruction for a code writer to implement this IN PLACE inside FM.step(), replacing its current BPR computation]
+HYPOTHESIS: [one sentence — what you're trying and why, relative to the current log-loss]
+LOSS_CHOICE: [bpr | softmax | focal | warp]
+CODE_INSTRUCTION: [exact instruction for a code writer to implement this IN PLACE inside FM.step(), replacing its current log-loss computation]
 REASONING: [2-3 sentences of ML reasoning for the judge logs]
 """
 
     response = client.messages.create(
-        model="claude-haiku-4-5-20251001",
+        model="claude-haiku-4-5",
         max_tokens=1000,
         messages=[{"role": "user", "content": prompt}]
     )
@@ -114,19 +118,18 @@ REASONING: [2-3 sentences of ML reasoning for the judge logs]
 
 def _decide_technique(search_results: str, tried: list) -> str:
     """Pick a technique from phase 1 results that hasn't been tried yet.
-    Baseline is already BPR (see prompt), so 'bpr' is deliberately not in this
-    menu -- these are the alternatives TO the current BPR loss, not to a
-    log-loss baseline that no longer exists in the code."""
+    Baseline is pointwise log-loss (Phase 0 restored the shipped FM), so all
+    four of these -- including BPR -- are genuine moves away from it."""
     candidates = [
+        ("bpr", "Bayesian Personalised Ranking BPR per-user pairwise loss"),
         ("softmax", "softmax listwise loss recommender"),
         ("focal", "focal loss class imbalance"),
         ("warp", "WARP loss pairwise ranking hard negative mining"),
-        ("pointwise", "pointwise log-loss binary cross entropy recommender"),
     ]
     for key, technique in candidates:
         if f"loss:{key}" not in tried:
             return technique
-    return "softmax listwise loss recommender"  # fallback
+    return "Bayesian Personalised Ranking BPR per-user pairwise loss"  # fallback
 
 
 def _summarize_history(history: list) -> str:
@@ -144,7 +147,7 @@ def _summarize_history(history: list) -> str:
 def _parse_response(text: str) -> dict:
     result = {
         "hypothesis": "",
-        "loss_choice": "softmax",
+        "loss_choice": "bpr",
         "code_instruction": "",
         "reasoning": ""
     }

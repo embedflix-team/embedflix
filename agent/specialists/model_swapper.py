@@ -3,6 +3,8 @@ from anthropic import Anthropic
 import os
 import re
 
+from specialists._insight import WITHIN_USER_INVARIANCE
+
 client = Anthropic()
 
 # k=16 -> k=32: a pure hyperparameter bump, not a real architecture change,
@@ -12,6 +14,17 @@ client = Anthropic()
 # of run_fm's signature disambiguates to the default that actually matters).
 _HIGHER_K_OLD = "k=16, lr=0.001, epochs=40"
 _HIGHER_K_NEW = "k=32, lr=0.001, epochs=40"
+
+# model:lgbm -- switch the pipeline from the numpy FM to the LightGBM
+# LambdaRank stack in starter-kit/model_lgbm.py (which itself uses the official
+# FM's logit as a feature and re-ranks with train-only target encodings +
+# video engagement ratios, optimising nDCG@5 directly). This is a
+# single-substring flip of baseline.py's --model default, so it goes through
+# the same zero-LLM deterministic path as higher_k; run_pipeline passes no
+# explicit --model, so the new default takes effect, and a rejected iteration
+# restores the checkpoint (default back to 'fm').
+_LGBM_OLD = "ap.add_argument('--model', default='fm'"
+_LGBM_NEW = "ap.add_argument('--model', default='lgbm'"
 
 
 def model_swapper(state: dict, tools: dict) -> dict:
@@ -29,6 +42,31 @@ def model_swapper(state: dict, tools: dict) -> dict:
     primary = state.get("current_scores", {}).get("primary") or 0.6016
 
     key, technique = _decide_technique(tried)
+
+    if key == "lgbm":
+        hypothesis = (
+            "Model swapper: switch the pipeline from the numpy FM to the "
+            "LightGBM LambdaRank stack (model:lgbm). The FM's per-ID embeddings "
+            "already saturate the item-side signal IDs can carry, so the stack "
+            "keeps the FM's logit as a feature and re-ranks with train-only "
+            "target encodings + video engagement ratios, optimising nDCG@5 "
+            "directly. Standalone-validated (5-seed ensemble): valid 0.6045 (+0.0029) / test 0.5975 (+0.0029)."
+        )
+        return {
+            **state,
+            "hypothesis": hypothesis,
+            "code_change_instruction": (
+                f"(deterministic) find `{_LGBM_OLD}` and replace with "
+                f"`{_LGBM_NEW}` in starter-kit/baseline.py (flips the --model default)."
+            ),
+            "reasoning": hypothesis,
+            "tried_approaches": tried + [f"model:{key}"],
+            "_deterministic_edit": {
+                "file": "baseline.py",
+                "old_code": _LGBM_OLD,
+                "new_code": _LGBM_NEW,
+            },
+        }
 
     if key == "higher_k":
         hypothesis = (
@@ -66,6 +104,8 @@ def model_swapper(state: dict, tools: dict) -> dict:
     })
 
     prompt = f"""You are an ML expert improving a KuaiRand-Pure recommender system.
+
+{WITHIN_USER_INVARIANCE}
 
 CURRENT SITUATION:
 - Baseline: Factorization Machine (FM) with k=16 embeddings, 5 features
@@ -127,7 +167,7 @@ REASONING: [2-3 sentences of ML reasoning for judge logs]
 """
 
     response = client.messages.create(
-        model="claude-haiku-4-5-20251001",
+        model="claude-haiku-4-5",
         max_tokens=1000,
         messages=[{"role": "user", "content": prompt}]
     )
@@ -146,10 +186,12 @@ REASONING: [2-3 sentences of ML reasoning for judge logs]
 
 
 def _decide_technique(tried: list) -> tuple:
-    """Returns (key, description). higher_k is deliberately first -- it's the
-    deterministic option, so it's the natural default before falling back to
-    the four options that need real research + LLM-authored code."""
+    """Returns (key, description). lgbm and higher_k are deterministic (zero
+    LLM), so they come first; the four architectural options after them need
+    real research + LLM-authored code. lgbm is first because it's the biggest
+    lever -- a whole model swap, standalone-validated above the baseline."""
     candidates = [
+        ("lgbm", "switch pipeline to the LightGBM LambdaRank + FM stack"),
         ("higher_k", "FM higher embedding dimension k=32"),
         ("deepfm", "DeepFM deep component MLP feature interaction"),
         ("field_aware_fm", "Field-aware Factorization Machine FFM"),

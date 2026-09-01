@@ -351,7 +351,7 @@ def _rank_avg(users, pred_list):
     return np.mean(ranks, axis=0)
 
 
-def run_ensemble(splits, seeds=(0, 1, 2), verbose=True):
+def run_ensemble(splits, seeds=(0, 1, 2, 3, 4), verbose=True):
     """Full FM+LGBM stack per seed; rank-average valid/test predictions.
     Reduces the ~0.0008 seed variance below the eps=0.002 convergence rule."""
     va_preds, te_preds = [], []

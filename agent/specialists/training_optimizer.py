@@ -2,6 +2,8 @@
 from anthropic import Anthropic
 import re
 
+from specialists._insight import WITHIN_USER_INVARIANCE
+
 client = Anthropic()
 
 # (label, OLD_CODE, NEW_CODE, one-line description) -- each OLD_CODE is an
@@ -47,6 +49,8 @@ def training_optimizer(state: dict, tools: dict) -> dict:
 
     prompt = f"""You are an ML expert improving a KuaiRand-Pure recommender system.
 
+{WITHIN_USER_INVARIANCE}
+
 CURRENT SITUATION:
 - Baseline: lr=0.001, batch_size=8192, Adam, early stopping patience=4, k=16, l2=1e-6
 - Current primary score: {primary:.4f} (baseline to beat: 0.6016)
@@ -72,7 +76,7 @@ REASONING: [2-3 sentences of ML reasoning for judge logs -- why this change, giv
 """
 
     response = client.messages.create(
-        model="claude-haiku-4-5-20251001",
+        model="claude-haiku-4-5",
         max_tokens=400,
         messages=[{"role": "user", "content": prompt}]
     )
