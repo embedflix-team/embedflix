@@ -331,7 +331,10 @@ Hard rules for the output:
         messages=[{"role": "user", "content": content}],
         stop_sequences=["\nHuman:", "\nAssistant:", "\n\nHuman:"],
     )
-    text = response.content[0].text
+    # CODE_WRITER_MODEL is claude-opus-5, which has extended thinking ON by
+    # default -- response.content is [ThinkingBlock, TextBlock, ...], so the
+    # text is not content[0]. Pick the text block explicitly.
+    text = next((b.text for b in response.content if getattr(b, "type", None) == "text"), "")
     usage = getattr(response, "usage", None)
     tokens = (usage.input_tokens + usage.output_tokens) if usage else 0
     return text, tokens
