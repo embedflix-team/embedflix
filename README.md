@@ -208,10 +208,10 @@ checkpoints/           per-iteration baseline.py / data.py snapshots (the agent'
 <!-- TEAM: fill in real names. Structure below is a template. -->
 This is a team submission.
 
-- **&lt;Member A&gt;** — &lt;e.g. agent orchestration: LangGraph node graph, supervisor/specialist routing, code_writer safety&gt;
-- **&lt;Member B&gt;** — &lt;e.g. measurement integrity: baseline restoration, seed-confirmed accept gate, no-op detector, test suite&gt;
-- **&lt;Member C&gt;** — &lt;e.g. modelling: the within-user insight, the LightGBM LambdaRank + FM stack, leakage discipline, ensembling&gt;
-- **&lt;Member D&gt;** — &lt;e.g. deliverables, diagrams, run analysis&gt;
+- **&lt;Sara&Shraddha&gt;** — &lt;e.g. agent orchestration: LangGraph node graph, supervisor/specialist routing, code_writer safety&gt;
+- **&lt;Shraddha&gt;** — &lt;e.g. measurement integrity: baseline restoration, seed-confirmed accept gate, no-op detector, test suite&gt;
+- **&lt;Sara & Shraddha&gt;** — &lt;e.g. modelling: the within-user insight, the LightGBM LambdaRank + FM stack, leakage discipline, ensembling&gt;
+- **&lt;SARA D&gt;** — &lt;e.g. deliverables, diagrams, run analysis&gt;
 
 ## License / data
 
